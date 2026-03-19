@@ -140,12 +140,27 @@ SUPERSET_TOOLS = [list_datasets, get_schema, execute_sql, get_chart_config]
 def _build_llm():
     """Instantiate the LLM based on config. Supports OpenAI today."""
     if Config.LLM_PROVIDER == "openai":
-        return ChatOpenAI(
-            model=Config.OPENAI_MODEL,
-            api_key=Config.OPENAI_API_KEY,
-            temperature=0,
-            streaming=True,
-        )
+        # Force re-read of env in case Flask's debug auto-reloader kept stale os.environ
+        from dotenv import load_dotenv, find_dotenv
+        import os
+        load_dotenv(find_dotenv(usecwd=True), override=True)
+        
+        actual_base = os.environ.get("OPENAI_API_BASE", Config.OPENAI_API_BASE)
+        actual_key = os.environ.get("OPENAI_API_KEY", Config.OPENAI_API_KEY)
+        actual_model = os.environ.get("CHATBI_OPENAI_MODEL", Config.OPENAI_MODEL)
+        logger.info("Initializing ChatOpenAI with base_url=%s, model=%s", actual_base, actual_model)
+        
+        kwargs = {
+            "model": actual_model,
+            "api_key": actual_key,
+            "temperature": 0,
+            "streaming": True,
+        }
+        if actual_base:
+            kwargs["base_url"] = actual_base
+            kwargs["openai_api_base"] = actual_base
+            
+        return ChatOpenAI(**kwargs)
     raise ValueError(f"Unsupported LLM provider: {Config.LLM_PROVIDER}")
 
 

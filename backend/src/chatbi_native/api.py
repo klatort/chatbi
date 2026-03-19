@@ -104,19 +104,14 @@ def chat() -> Response:
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
-            "Access-Control-Allow-Origin": "*",
         },
     )
 
 
-@blueprint.route("/chat", methods=["OPTIONS"])
-def chat_options() -> Response:
-    """CORS preflight for cross-origin requests from the Superset frontend."""
-    return Response(
-        status=200,
-        headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "POST, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type, Authorization",
-        },
-    )
+@blueprint.after_request
+def apply_cors(response: Response) -> Response:
+    """Ensure all responses (including auto-generated OPTIONS) have CORS headers."""
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, PUT, DELETE"
+    response.headers["Access-Control-Allow-Headers"] = "*"
+    return response

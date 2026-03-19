@@ -20,6 +20,7 @@ class Config:
     # OpenAI / Azure OpenAI
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
     OPENAI_MODEL: str = os.getenv("CHATBI_OPENAI_MODEL", "gpt-4o")
+    OPENAI_API_BASE: str = os.getenv("OPENAI_API_BASE", "")
 
     # ── Server ───────────────────────────────────────────────────────
     FLASK_DEBUG: bool = os.getenv("FLASK_DEBUG", "0") == "1"
