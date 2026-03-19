@@ -1,0 +1,20 @@
+# ── Node / Frontend ──────────────────────────────────────────────────
+frontend/node_modules/
+frontend/dist/
+
+# ── Python / Backend ─────────────────────────────────────────────────
+backend/.venv/
+backend/__pycache__/
+backend/src/**/__pycache__/
+backend/*.egg-info/
+backend/.pytest_cache/
+backend/.ruff_cache/
+**/*.pyc
+**/*.pyo
+
+# ── Secrets ───────────────────────────────────────────────────────────
+backend/.env
+.env
+
+# ── Mise ──────────────────────────────────────────────────────────────
+.mise.local.toml

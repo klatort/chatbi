@@ -1,0 +1,24 @@
+{
+  "name": "chatbi-native",
+  "version": "0.1.0",
+  "description": "Conversational Agentic BI interface for Apache Superset — a floating chat panel powered by LangGraph and MCP.",
+  "author": "ChatBI Team",
+  "license": "Apache-2.0",
+  "frontend": {
+    "entry": "./frontend/src/index.tsx",
+    "federation": {
+      "name": "chatbi_native",
+      "exposes": {
+        "./ChatBIPanel": "./src/ChatBIPanel"
+      },
+      "shared": {
+        "react": { "singleton": true, "requiredVersion": "^18.0.0" },
+        "react-dom": { "singleton": true, "requiredVersion": "^18.0.0" }
+      }
+    }
+  },
+  "backend": {
+    "entry": "chatbi_native",
+    "blueprint": "chatbi_native.api:blueprint"
+  }
+}

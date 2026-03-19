@@ -1,0 +1,33 @@
+[tools]
+node = "24.10.0"
+python = "3.13.12"
+
+# ── Development Tasks ─────────────────────────────────────────────────
+# Run with: mise run <task>
+
+[tasks.setup]
+description = "Install all frontend and backend dependencies"
+run = [
+    "cd frontend && npm install",
+    "cd backend && python -m venv .venv && .venv/bin/pip install -r requirements.txt",
+]
+
+[tasks.dev-backend]
+description = "Start the Flask LangGraph backend (port 5009)"
+dir   = "backend"
+run   = ".venv/bin/python run_server.py"
+
+[tasks.dev-frontend]
+description = "Start the webpack dev server (port 3099)"
+dir  = "frontend"
+run  = "node ./node_modules/.bin/webpack serve --mode=development"
+
+[tasks.build]
+description = "Build the production frontend bundle"
+dir  = "frontend"
+run  = "node ./node_modules/.bin/webpack --mode=production"
+
+[tasks.build-dev]
+description = "Build a development frontend bundle (faster, with source maps)"
+dir  = "frontend"
+run  = "node ./node_modules/.bin/webpack --mode=development"
