@@ -105,6 +105,9 @@ def inject_chatbi_loader(response: Response) -> Response:
     if "text/html" not in content_type:
         return response
 
+    if response.is_streamed:
+        return response
+
     try:
         data = response.get_data()
         is_gzipped = response.content_encoding == 'gzip'

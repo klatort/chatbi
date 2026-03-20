@@ -101,11 +101,20 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         }
       }
 
+      let csrfToken = '';
+      if (typeof window !== 'undefined') {
+        const csrfEl = document.getElementById('csrf_token') as HTMLInputElement;
+        if (csrfEl) csrfToken = csrfEl.value;
+      }
+
       const response = await fetch(
         `${backendUrl}/extensions/chatbi-native/chat`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+          },
           body: JSON.stringify({ message: text.trim() + contextStr, history }),
         },
       );
