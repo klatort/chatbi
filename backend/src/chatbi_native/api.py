@@ -79,42 +79,46 @@ _CHATBI_LOADER_TEMPLATE = """
 """
 
 
-@blueprint.record_once
-def _register_injection_hook(state):
-    """
-    When the blueprint is registered with the Superset Flask app,
-    attach an app-level after_request hook that injects the ChatBI
-    loader script into every HTML response.
-    """
-    app = state.app
-    remote_url = os.getenv(
-        "CHATBI_REMOTE_ENTRY_URL",
-        "http://localhost:3099/remoteEntry.js",
-    )
-    loader_snippet = _CHATBI_LOADER_TEMPLATE.format(remote_entry_url=remote_url)
-    loader_bytes = loader_snippet.encode("utf-8")
+_REMOTE_URL = os.getenv("CHATBI_REMOTE_ENTRY_URL", "http://localhost:3099/remoteEntry.js")
+_LOADER_BYTES = _CHATBI_LOADER_TEMPLATE.format(remote_entry_url=_REMOTE_URL).encode("utf-8")
 
-    @app.after_request
-    def inject_chatbi_loader(response):
-        # Only inject into HTML responses (Superset pages)
-        content_type = response.content_type or ""
-        if "text/html" not in content_type:
-            return response
-        try:
-            data = response.get_data()
-            logger.info(
-                "ChatBI: after_request HTML response, len=%d, has_body_tag=%s, direct_passthrough=%s",
-                len(data), b"</body>" in data, getattr(response, "direct_passthrough", "N/A")
-            )
-            if b"</body>" in data and b"__chatbi_loaded" not in data:
-                response.set_data(data.replace(b"</body>", loader_bytes + b"</body>"))
-                logger.info("ChatBI: script injected successfully")
-        except Exception as exc:
-            logger.error("ChatBI: injection failed: %s", exc)
+import gzip
+
+@blueprint.after_app_request
+def inject_chatbi_loader(response: Response) -> Response:
+    """
+    App-level after_request hook that injects the ChatBI loader script
+    into every HTML response served by Superset.
+    """
+    content_type = response.content_type or ""
+    if "text/html" not in content_type:
         return response
 
-    logger.info("ChatBI: registered loader injection (remote=%s)", remote_url)
+    try:
+        data = response.get_data()
+        is_gzipped = response.content_encoding == 'gzip'
 
+        if is_gzipped:
+            data = gzip.decompress(data)
+
+        logger.info(
+            "ChatBI: after_app_request HTML response, len=%d, has_body_tag=%s",
+            len(data), b"</body>" in data
+        )
+
+        if b"</body>" in data and b"__chatbi_loaded" not in data:
+            data = data.replace(b"</body>", _LOADER_BYTES + b"</body>")
+            if is_gzipped:
+                data = gzip.compress(data)
+            response.set_data(data)
+            logger.info("ChatBI: script injected successfully!")
+            
+    except Exception as exc:
+        logger.error("ChatBI: injection failed: %s", exc)
+
+    return response
+
+logger.info("ChatBI: registered loader injection (remote=%s)", _REMOTE_URL)
 
 @blueprint.route("/test-inject", methods=["GET"])
 def test_inject() -> Response:
