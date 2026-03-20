@@ -113,11 +113,17 @@ To load the extension inside a real Superset instance:
 2. **Serve `frontend/dist/`** via a static file server or CDN.
 
 3. **Register with Superset** by merging `superset_config.py` into your existing config:
+   *(Note: If using Docker Compose, make sure to mount the file and explicitly declare `SUPERSET_CONFIG_PATH=/app/superset_home/superset_config.py` in your container environment variables!)*
    ```bash
    export SUPERSET_CONFIG_PATH=/path/to/chatbi-native/superset_config.py
    ```
 
 4. **Restart Superset.** The ChatBI panel loads as a global overlay on every page.
+
+### Docker Compose & Deployment Notes
+If you are deploying via Docker Compose or onto a remote server, please remember:
+- **Remote Entry URL**: The browser fetches `remoteEntry.js` directly. If your Superset is hosted at `http://110.238.x.x:8088`, you must change `CHATBI_REMOTE_ENTRY_URL` from `localhost:3099` to `http://110.238.x.x:3099/remoteEntry.js`, or the frontend overlay will silently fail to load!
+- **Fresh Databases**: If using a brand-new container, don't forget to run `superset db upgrade`, `superset fab create-admin`, and `superset init` inside the container so you don't get `no such table: themes` errors.
 
 ## Environment Variables
 

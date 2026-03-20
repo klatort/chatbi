@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from typing import Generator
 
 from flask import Blueprint, Response, jsonify, request, stream_with_context
@@ -33,6 +34,81 @@ blueprint = Blueprint(
     __name__,
     url_prefix="/extensions/chatbi-native",
 )
+
+
+# ── Script Injection ─────────────────────────────────────────────────
+# Superset does NOT have a built-in mechanism to load Module Federation
+# remotes from config. We inject a small <script> into every HTML page
+# that loads remoteEntry.js and calls mountComponent() to render the
+# ChatBI floating panel.
+
+_CHATBI_LOADER_TEMPLATE = """
+<!-- ChatBI Native Extension Loader -->
+<script>
+(function() {{
+  if (window.__chatbi_loaded) return;
+  window.__chatbi_loaded = true;
+
+  var remoteUrl = "{remote_entry_url}";
+  var script = document.createElement("script");
+  script.src = remoteUrl;
+  script.async = true;
+  script.onload = function() {{
+    if (typeof chatbi_native === "undefined") return;
+    chatbi_native.init({{
+      react: {{ get: function() {{ return window.React; }}, loaded: true, from: "superset" }},
+      "react-dom": {{ get: function() {{ return window.ReactDOM; }}, loaded: true, from: "superset" }}
+    }});
+    chatbi_native.get("./ChatBIPanel").then(function(factory) {{
+      var mod = factory();
+      if (mod && mod.default && typeof mod.default.mountComponent === "function") {{
+        mod.default.mountComponent();
+      }} else if (mod && typeof mod.mountComponent === "function") {{
+        mod.mountComponent();
+      }}
+    }}).catch(function(err) {{
+      console.error("[ChatBI] Failed to mount:", err);
+    }});
+  }};
+  script.onerror = function() {{
+    console.error("[ChatBI] Failed to load remoteEntry.js from " + remoteUrl);
+  }};
+  document.head.appendChild(script);
+}})();
+</script>
+"""
+
+
+@blueprint.record_once
+def _register_injection_hook(state):
+    """
+    When the blueprint is registered with the Superset Flask app,
+    attach an app-level after_request hook that injects the ChatBI
+    loader script into every HTML response.
+    """
+    app = state.app
+    remote_url = os.getenv(
+        "CHATBI_REMOTE_ENTRY_URL",
+        "http://localhost:3099/remoteEntry.js",
+    )
+    loader_snippet = _CHATBI_LOADER_TEMPLATE.format(remote_entry_url=remote_url)
+    loader_bytes = loader_snippet.encode("utf-8")
+
+    @app.after_request
+    def inject_chatbi_loader(response):
+        # Only inject into HTML responses (Superset pages)
+        content_type = response.content_type or ""
+        if "text/html" not in content_type:
+            return response
+        try:
+            data = response.get_data()
+            if b"</body>" in data and b"__chatbi_loaded" not in data:
+                response.set_data(data.replace(b"</body>", loader_bytes + b"</body>"))
+        except Exception:
+            pass  # Don't break Superset if injection fails
+        return response
+
+    logger.info("ChatBI: registered loader injection (remote=%s)", remote_url)
 
 
 # ── Health Check ──────────────────────────────────────────────────────
