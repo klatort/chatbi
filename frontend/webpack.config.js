@@ -48,7 +48,7 @@ module.exports = (env, argv) => {
                 name: 'chatbi_native',
                 filename: 'remoteEntry.js',
                 exposes: {
-                    './ChatBIPanel': './src/ChatBIPanel',
+                    './ChatBIPanel': './src/bootstrap',
                 },
                 shared: {
                     react: {
