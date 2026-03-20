@@ -15,9 +15,9 @@ import type { ChatMessage, ChatStore, SSEEvent, ToolCallEvent } from './types';
 // ── Helpers ───────────────────────────────────────────────────────────
 
 const uuid = (): string =>
-  typeof crypto !== 'undefined'
+  typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
     ? crypto.randomUUID()
-    : Math.random().toString(36).slice(2);
+    : Date.now().toString(36) + Math.random().toString(36).slice(2);
 
 const BACKEND_URL =
   (typeof window !== 'undefined' && (window as any).__CHATBI_BACKEND_URL__) ||
@@ -82,12 +82,31 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         content: m.content,
       }));
 
+      // Extract Superset context from URL to help the agent
+      let contextStr = '';
+      if (typeof window !== 'undefined') {
+        const path = window.location.pathname;
+        const search = window.location.search;
+        if (path.includes('/superset/dashboard/')) {
+          const dashMatch = path.match(/\/dashboard\/([a-zA-Z0-9_\.-]+)/);
+          if (dashMatch) {
+            contextStr = `\n\n[System Context: User is viewing Dashboard ID/Slug: ${dashMatch[1]}]`;
+          }
+        } else if (path.includes('/superset/explore/')) {
+          const params = new URLSearchParams(search);
+          const sliceId = params.get('slice_id') || params.get('form_data');
+          if (sliceId) {
+            contextStr = `\n\n[System Context: User is exploring Chart/Slice ID: ${sliceId}]`;
+          }
+        }
+      }
+
       const response = await fetch(
         `${backendUrl}/extensions/chatbi-native/chat`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: text.trim(), history }),
+          body: JSON.stringify({ message: text.trim() + contextStr, history }),
         },
       );
 
