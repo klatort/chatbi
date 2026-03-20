@@ -102,13 +102,27 @@ def _register_injection_hook(state):
             return response
         try:
             data = response.get_data()
+            logger.info(
+                "ChatBI: after_request HTML response, len=%d, has_body_tag=%s, direct_passthrough=%s",
+                len(data), b"</body>" in data, getattr(response, "direct_passthrough", "N/A")
+            )
             if b"</body>" in data and b"__chatbi_loaded" not in data:
                 response.set_data(data.replace(b"</body>", loader_bytes + b"</body>"))
-        except Exception:
-            pass  # Don't break Superset if injection fails
+                logger.info("ChatBI: script injected successfully")
+        except Exception as exc:
+            logger.error("ChatBI: injection failed: %s", exc)
         return response
 
     logger.info("ChatBI: registered loader injection (remote=%s)", remote_url)
+
+
+@blueprint.route("/test-inject", methods=["GET"])
+def test_inject() -> Response:
+    """Diagnostic: returns a minimal HTML page to verify script injection."""
+    return Response(
+        "<html><head></head><body><h1>ChatBI Injection Test</h1></body></html>",
+        content_type="text/html",
+    )
 
 
 # ── Health Check ──────────────────────────────────────────────────────
