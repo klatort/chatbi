@@ -87,6 +87,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       if (typeof window !== 'undefined') {
         const path = window.location.pathname;
         const search = window.location.search;
+        console.log('[ChatBI] Context Parse -> Path:', path, 'Search:', search);
         if (path.includes('/superset/dashboard/')) {
           const dashMatch = path.match(/\/dashboard\/([a-zA-Z0-9_\.-]+)/);
           if (dashMatch) {
@@ -99,6 +100,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             contextStr = `\n\n[System Context: User is exploring Chart/Slice ID: ${sliceId}]`;
           }
         }
+        console.log('[ChatBI] Backend Payload Augmented Context:', contextStr || '(None matches)');
       }
 
       let csrfToken = '';
@@ -128,8 +130,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       const decoder = new TextDecoder();
       let buffer = '';
 
-      // Track the current pending tool call (waiting for its result)
-      let pendingToolCallId: string | null = null;
+      // We no longer rely on a fragile single pending ID.
+      // LangGraph parallelly yields explicit IDs.
 
       while (true) {
         const { done, value } = await reader.read();
@@ -162,11 +164,11 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
             case 'tool_call': {
               const tc: ToolCallEvent = {
-                id: uuid(),
+                id: event.id ?? uuid(),
                 name: event.name ?? 'unknown',
                 args: event.args ?? {},
               };
-              pendingToolCallId = tc.id;
+              console.log(`[ChatBI Agent] 🛠️ Calling MCP Tool: ${tc.name}`, tc.args);
               patchAssistant((m) => ({
                 toolCalls: [...(m.toolCalls ?? []), tc],
               }));
@@ -174,19 +176,26 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             }
 
             case 'tool_result': {
-              if (pendingToolCallId) {
-                const tcId = pendingToolCallId;
+              const resultId = event.id;
+              if (resultId) {
+                const isError = event.content?.startsWith('Tool error:') || event.content?.startsWith('Error calling');
+                if (isError) {
+                  console.error(`[ChatBI Agent] ❌ Tool '${event.name}' Failed!`, event.content);
+                } else {
+                  console.log(`[ChatBI Agent] ✅ Tool '${event.name}' Returned data (len=${event.content?.length})`);
+                }
+
                 patchAssistant((m) => ({
                   toolCalls: (m.toolCalls ?? []).map((tc) =>
-                    tc.id === tcId ? { ...tc, result: event.content ?? '' } : tc,
+                    tc.id === resultId ? { ...tc, result: event.content ?? '' } : tc,
                   ),
                 }));
-                pendingToolCallId = null;
               }
               break;
             }
 
             case 'error':
+              console.error(`[ChatBI Agent] 🚨 Critical Backend Error:`, event.content);
               patchAssistant(() => ({
                 error: event.content ?? 'Unknown error',
                 streaming: false,
@@ -194,6 +203,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
               break;
 
             case 'done':
+              console.log(`[ChatBI Agent] ✨ Stream Finished.`);
               patchAssistant(() => ({ streaming: false }));
               break;
           }

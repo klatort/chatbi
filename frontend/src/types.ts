@@ -9,6 +9,7 @@ export type SSEEventType = 'token' | 'tool_call' | 'tool_result' | 'done' | 'err
 
 export interface SSEEvent {
   type: SSEEventType;
+  id?: string;
   content?: string;
   name?: string;
   args?: Record<string, unknown>;

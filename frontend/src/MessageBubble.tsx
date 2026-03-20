@@ -177,15 +177,6 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
       </div>
 
       <div style={{ flex: 1, minWidth: 0 }}>
-        {/* Tool calls */}
-        {hasTools && (
-          <div style={{ marginBottom: hasContent ? '8px' : '0' }}>
-            {message.toolCalls!.map((tc) => (
-              <ToolCallBadge key={tc.id} tool={tc} />
-            ))}
-          </div>
-        )}
-
         {/* Text content */}
         {(hasContent || message.streaming) && (
           <div
@@ -198,6 +189,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
               lineHeight: '1.6',
               color: '#1F2937',
               wordBreak: 'break-word',
+              marginBottom: hasTools ? '8px' : '0',
             }}
           >
             {hasContent ? renderMarkdown(message.content) : null}
@@ -215,6 +207,15 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
                 }}
               />
             )}
+          </div>
+        )}
+
+        {/* Tool calls */}
+        {hasTools && (
+          <div>
+            {message.toolCalls!.map((tc) => (
+              <ToolCallBadge key={tc.id} tool={tc} />
+            ))}
           </div>
         )}
 

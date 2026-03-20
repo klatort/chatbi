@@ -292,12 +292,18 @@ def stream_agent(
                     yield {"type": "token", "content": chunk.content}
                 # Stream tool-call start events
                 for tc in getattr(chunk, "tool_calls", []):
-                    yield {"type": "tool_call", "name": tc["name"], "args": tc["args"]}
+                    yield {
+                        "type": "tool_call",
+                        "id": tc["id"],
+                        "name": tc["name"],
+                        "args": tc["args"]
+                    }
 
             elif isinstance(chunk, ToolMessage):
                 yield {
                     "type": "tool_result",
-                    "name": "mcp_tool",
+                    "id": chunk.tool_call_id,
+                    "name": chunk.name,
                     "content": chunk.content[:2000],  # truncate big payloads
                 }
 
