@@ -31,6 +31,15 @@ export const extensionConfig = {
 
     const container = document.createElement('div');
     container.id = mountId;
+    
+    // Explicitly force to the very top z-index layer independent of React styles
+    // to prevent Superset from hiding it underneath a white background.
+    container.style.position = 'fixed';
+    container.style.bottom = '20px';
+    container.style.right = '20px';
+    container.style.zIndex = '999999';
+    container.style.pointerEvents = 'auto';
+
     document.body.appendChild(container);
 
     createRoot(container).render(

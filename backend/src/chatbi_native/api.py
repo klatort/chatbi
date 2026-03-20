@@ -65,11 +65,17 @@ _CHATBI_LOADER_TEMPLATE = """
     }}
     
     chatbi_native.get("./ChatBIPanel").then(function(factory) {{
+      console.log("[ChatBI] Module fetched from container, evaluating factory...");
       var mod = factory();
+      console.log("[ChatBI] Factory evaluated, attempting to call mountComponent...");
       if (mod && mod.default && typeof mod.default.mountComponent === "function") {{
         mod.default.mountComponent();
+        console.log("[ChatBI] Successfully called mod.default.mountComponent()");
       }} else if (mod && typeof mod.mountComponent === "function") {{
         mod.mountComponent();
+        console.log("[ChatBI] Successfully called mod.mountComponent()");
+      }} else {{
+        console.error("[ChatBI] mountComponent function not found in exported module:", mod);
       }}
     }}).catch(function(err) {{
       console.error("[ChatBI] Failed to mount:", err);
