@@ -21,7 +21,7 @@ const uuid = (): string =>
 
 const BACKEND_URL =
   (typeof window !== 'undefined' && (window as any).__CHATBI_BACKEND_URL__) ||
-  'http://localhost:5009';
+  '';
 
 // ── Store ─────────────────────────────────────────────────────────────
 
