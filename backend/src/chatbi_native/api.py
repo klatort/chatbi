@@ -55,10 +55,15 @@ _CHATBI_LOADER_TEMPLATE = """
   script.async = true;
   script.onload = function() {{
     if (typeof chatbi_native === "undefined") return;
-    chatbi_native.init({{
-      react: {{ get: function() {{ return window.React; }}, loaded: true, from: "superset" }},
-      "react-dom": {{ get: function() {{ return window.ReactDOM; }}, loaded: true, from: "superset" }}
-    }});
+    try {{
+      // Try to use Superset's existing share scope if it uses Module Federation,
+      // otherwise provide an isolated empty scope so ChatBI downloads its own React.
+      var scope = (window.__webpack_share_scopes__ || {{}}).default || {{}};
+      chatbi_native.init(scope);
+    }} catch (e) {{
+      // Already initialized
+    }}
+    
     chatbi_native.get("./ChatBIPanel").then(function(factory) {{
       var mod = factory();
       if (mod && mod.default && typeof mod.default.mountComponent === "function") {{
