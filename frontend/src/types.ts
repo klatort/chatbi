@@ -23,6 +23,10 @@ export interface ToolCallEvent {
   result?: string;
 }
 
+export type MessageBlock = 
+  | { type: 'text'; content: string }
+  | { type: 'tool'; toolCall: ToolCallEvent };
+
 /** A message in the conversation */
 export type MessageRole = 'user' | 'assistant';
 
@@ -31,6 +35,8 @@ export interface ChatMessage {
   role: MessageRole;
   /** Text content — built up token by token for assistant messages */
   content: string;
+  /** Ordered timeline of everything the AI emitted (text chunks and tool usages) */
+  blocks?: MessageBlock[];
   /** Tool calls made during this assistant turn */
   toolCalls?: ToolCallEvent[];
   /** True while streaming is in progress */

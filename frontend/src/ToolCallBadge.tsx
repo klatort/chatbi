@@ -29,8 +29,8 @@ export const ToolCallBadge: React.FC<ToolCallBadgeProps> = ({ tool }) => {
       style={{
         margin: '6px 0',
         borderRadius: '8px',
-        border: '1px solid #E5E7EB',
-        background: '#F9FAFB',
+        border: '1px solid #3A3A3A',
+        background: '#262626',
         overflow: 'hidden',
         fontSize: '12px',
       }}
@@ -48,7 +48,7 @@ export const ToolCallBadge: React.FC<ToolCallBadgeProps> = ({ tool }) => {
           border: 'none',
           cursor: 'pointer',
           textAlign: 'left',
-          color: '#374151',
+          color: '#D1D5DB',
         }}
       >
         <span style={{ fontSize: '14px' }}>{icon}</span>
@@ -75,7 +75,7 @@ export const ToolCallBadge: React.FC<ToolCallBadgeProps> = ({ tool }) => {
 
       {/* ── Expanded detail ── */}
       {expanded && (
-        <div style={{ borderTop: '1px solid #E5E7EB', padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+        <div style={{ borderTop: '1px solid #3A3A3A', padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
           {Object.keys(tool.args).length > 0 && (
             <div>
               <div style={{ color: '#6B7280', marginBottom: '2px', fontWeight: 600 }}>Args</div>
@@ -84,11 +84,11 @@ export const ToolCallBadge: React.FC<ToolCallBadgeProps> = ({ tool }) => {
                   margin: 0,
                   padding: '6px 8px',
                   borderRadius: '6px',
-                  background: '#F3F4F6',
+                  background: '#1A1A1A',
                   overflowX: 'auto',
                   whiteSpace: 'pre-wrap',
                   wordBreak: 'break-all',
-                  color: '#1F2937',
+                  color: '#9CA3AF',
                   lineHeight: '1.4',
                 }}
               >
@@ -104,11 +104,11 @@ export const ToolCallBadge: React.FC<ToolCallBadgeProps> = ({ tool }) => {
                   margin: 0,
                   padding: '6px 8px',
                   borderRadius: '6px',
-                  background: '#F0FDF4',
+                  background: '#14291D',
                   overflowX: 'auto',
                   whiteSpace: 'pre-wrap',
                   wordBreak: 'break-all',
-                  color: '#14532D',
+                  color: '#4ADE80',
                   lineHeight: '1.4',
                   maxHeight: '200px',
                   overflowY: 'auto',

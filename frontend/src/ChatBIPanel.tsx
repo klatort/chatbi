@@ -206,8 +206,8 @@ export const ChatBIPanel: React.FC = () => {
             overflow: 'hidden',
             display: 'flex',
             flexDirection: 'column',
-            background: '#FFFFFF',
-            boxShadow: '0 16px 48px rgba(0, 0, 0, 0.14), 0 2px 8px rgba(0,0,0,0.06)',
+            background: '#1F1F1F',
+            boxShadow: '0 16px 48px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0,0,0,0.2)',
             animation: 'chatbi-slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
           }}
         >
@@ -311,7 +311,7 @@ export const ChatBIPanel: React.FC = () => {
                   ✦
                 </div>
                 <div>
-                  <div style={{ fontSize: '16px', fontWeight: 700, color: '#111827', marginBottom: '6px' }}>
+                  <div style={{ fontSize: '16px', fontWeight: 700, color: '#F3F4F6', marginBottom: '6px' }}>
                     Ask anything about your data
                   </div>
                   <div style={{ fontSize: '13px', lineHeight: '1.6', maxWidth: '300px' }}>
@@ -327,23 +327,23 @@ export const ChatBIPanel: React.FC = () => {
                       style={{
                         padding: '10px 14px',
                         borderRadius: '10px',
-                        border: '1px solid #E5E7EB',
-                        background: '#FAFAFA',
+                        border: '1px solid #3A3A3A',
+                        background: '#2A2A2A',
                         fontSize: '13px',
-                        color: '#374151',
+                        color: '#D1D5DB',
                         cursor: 'pointer',
                         textAlign: 'left',
                         transition: 'all 0.15s ease',
                       }}
                       onMouseEnter={(e) => {
                         e.currentTarget.style.borderColor = '#20A7C9';
-                        e.currentTarget.style.background = '#F0FAFB';
+                        e.currentTarget.style.background = '#1A2F35';
                         e.currentTarget.style.color = '#20A7C9';
                       }}
                       onMouseLeave={(e) => {
-                        e.currentTarget.style.borderColor = '#E5E7EB';
-                        e.currentTarget.style.background = '#FAFAFA';
-                        e.currentTarget.style.color = '#374151';
+                        e.currentTarget.style.borderColor = '#3A3A3A';
+                        e.currentTarget.style.background = '#2A2A2A';
+                        e.currentTarget.style.color = '#D1D5DB';
                       }}
                     >
                       {s}
@@ -366,19 +366,19 @@ export const ChatBIPanel: React.FC = () => {
           <div
             style={{
               padding: '12px 14px',
-              borderTop: '1px solid #F3F4F6',
-              background: '#FAFAFA',
+              borderTop: '1px solid #333333',
+              background: '#1A1A1A',
               flexShrink: 0,
             }}
           >
             <div
               style={{
                 display: 'flex',
-                alignItems: 'flex-end',
+                alignItems: 'center',
                 gap: '8px',
-                background: '#FFFFFF',
+                background: '#262626',
                 borderRadius: '12px',
-                border: '1.5px solid #E5E7EB',
+                border: '1.5px solid #404040',
                 padding: '8px 10px 8px 14px',
                 transition: 'border-color 0.15s',
               }}
@@ -386,7 +386,7 @@ export const ChatBIPanel: React.FC = () => {
                 (e.currentTarget as HTMLDivElement).style.borderColor = '#20A7C9';
               }}
               onBlurCapture={(e) => {
-                (e.currentTarget as HTMLDivElement).style.borderColor = '#E5E7EB';
+                (e.currentTarget as HTMLDivElement).style.borderColor = '#404040';
               }}
             >
               <textarea
@@ -404,7 +404,7 @@ export const ChatBIPanel: React.FC = () => {
                   resize: 'none',
                   fontSize: '14px',
                   lineHeight: '1.5',
-                  color: '#1F2937',
+                  color: '#F3F4F6',
                   background: 'transparent',
                   fontFamily: 'inherit',
                   overflowY: 'hidden',

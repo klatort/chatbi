@@ -62,7 +62,7 @@ function renderMarkdown(text: string): React.ReactNode[] {
       const hText = line.replace(/^#+\s/, '');
       const sizes = ['18px', '16px', '14px'];
       result.push(
-        <div key={i} style={{ fontWeight: 700, fontSize: sizes[level - 1] ?? '14px', marginTop: '10px', marginBottom: '2px', color: '#111827' }}>
+        <div key={i} style={{ fontWeight: 700, fontSize: sizes[level - 1] ?? '14px', marginTop: '10px', marginBottom: '2px', color: '#F3F4F6' }}>
           {inlineMarkdown(hText)}
         </div>,
       );
@@ -82,7 +82,7 @@ function renderMarkdown(text: string): React.ReactNode[] {
 
     // Horizontal rule
     if (/^---+$/.test(line.trim())) {
-      result.push(<hr key={i} style={{ border: 'none', borderTop: '1px solid #E5E7EB', margin: '8px 0' }} />);
+      result.push(<hr key={i} style={{ border: 'none', borderTop: '1px solid #404040', margin: '8px 0' }} />);
       return;
     }
 
@@ -112,7 +112,7 @@ function inlineMarkdown(text: string): React.ReactNode {
       parts.push(<strong key={match.index}>{match[2]}</strong>);
     } else {
       parts.push(
-        <code key={match.index} style={{ background: '#F3F4F6', borderRadius: '4px', padding: '1px 5px', fontSize: '12px', fontFamily: 'monospace', color: '#1F2937' }}>
+        <code key={match.index} style={{ background: '#333333', borderRadius: '4px', padding: '1px 5px', fontSize: '12px', fontFamily: 'monospace', color: '#20A7C9' }}>
           {match[3]}
         </code>,
       );
@@ -166,86 +166,89 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
           width: '28px',
           height: '28px',
           borderRadius: '8px',
-          background: 'linear-gradient(135deg, #E0F4F8 0%, #C8E8F0 100%)',
+          background: 'linear-gradient(135deg, #1A3E48 0%, #144957 100%)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           fontSize: '14px',
+          color: '#20A7C9',
         }}
       >
         ✦
       </div>
 
       <div style={{ flex: 1, minWidth: 0 }}>
-        {/* Text content */}
-        {(hasContent || message.streaming) && (
-          <div
-            style={{
-              background: '#F9FAFB',
-              border: '1px solid #F3F4F6',
-              borderRadius: '4px 16px 16px 16px',
-              padding: '10px 14px',
-              fontSize: '14px',
-              lineHeight: '1.6',
-              color: '#1F2937',
-              wordBreak: 'break-word',
-              marginBottom: hasTools ? '8px' : '0',
-            }}
-          >
-            {hasContent ? renderMarkdown(message.content) : null}
-            {/* Blinking cursor while streaming */}
-            {message.streaming && (
-              <span
-                style={{
-                  display: 'inline-block',
-                  width: '2px',
-                  height: '14px',
-                  background: '#20A7C9',
-                  marginLeft: '2px',
-                  verticalAlign: 'middle',
-                  animation: 'chatbi-blink 1s step-end infinite',
-                }}
-              />
-            )}
+        {/* Render interleaved blocks */}
+        {(message.blocks?.length ?? 0) > 0 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {message.blocks!.map((block, idx) => {
+              if (block.type === 'text') {
+                return (
+                  <div
+                    key={`text-${idx}`}
+                    style={{
+                      background: '#2A2A2A',
+                      border: '1px solid #3A3A3A',
+                      borderRadius: '4px 16px 16px 16px',
+                      padding: '10px 14px',
+                      fontSize: '14px',
+                      lineHeight: '1.6',
+                      color: '#F3F4F6',
+                      wordBreak: 'break-word',
+                    }}
+                  >
+                    {renderMarkdown(block.content)}
+                    {/* Blinking cursor if this is the last block and streaming */}
+                    {message.streaming && idx === message.blocks!.length - 1 && (
+                      <span
+                        style={{
+                          display: 'inline-block',
+                          width: '2px',
+                          height: '14px',
+                          background: '#20A7C9',
+                          marginLeft: '2px',
+                          verticalAlign: 'middle',
+                          animation: 'chatbi-blink 1s step-end infinite',
+                        }}
+                      />
+                    )}
+                  </div>
+                );
+              } else if (block.type === 'tool') {
+                return <ToolCallBadge key={block.toolCall.id} tool={block.toolCall} />;
+              }
+              return null;
+            })}
           </div>
-        )}
-
-        {/* Tool calls */}
-        {hasTools && (
-          <div>
-            {message.toolCalls!.map((tc) => (
-              <ToolCallBadge key={tc.id} tool={tc} />
-            ))}
-          </div>
-        )}
-
-        {/* Thinking indicator (no content yet, still streaming) */}
-        {!hasContent && !hasTools && message.streaming && (
-          <div
-            style={{
-              background: '#F9FAFB',
-              border: '1px solid #F3F4F6',
-              borderRadius: '4px 16px 16px 16px',
-              padding: '10px 14px',
-              display: 'flex',
-              gap: '4px',
-              alignItems: 'center',
-            }}
-          >
-            {[0, 1, 2].map((i) => (
-              <span
-                key={i}
-                style={{
-                  width: '6px',
-                  height: '6px',
-                  borderRadius: '50%',
-                  background: '#20A7C9',
-                  display: 'inline-block',
-                  animation: `chatbi-bounce 1.2s ease-in-out ${i * 0.2}s infinite`,
-                }}
-              />
-            ))}
-          </div>
+        ) : (
+          /* Thinking indicator (no content yet, still streaming) */
+          !message.error && message.streaming && (
+            <div
+              style={{
+                background: '#2A2A2A',
+                border: '1px solid #3A3A3A',
+                borderRadius: '4px 16px 16px 16px',
+                padding: '10px 14px',
+                display: 'flex',
+                gap: '4px',
+                alignItems: 'center',
+              }}
+            >
+              {[0, 1, 2].map((i) => (
+                <span
+                  key={i}
+                  style={{
+                    width: '6px',
+                    height: '6px',
+                    borderRadius: '50%',
+                    background: '#20A7C9',
+                    display: 'inline-block',
+                    animation: `chatbi-bounce 1.2s ease-in-out ${i * 0.2}s infinite`,
+                  }}
+                />
+              ))}
+            </div>
+          )
         )}
 
         {/* Error state */}
@@ -255,9 +258,9 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
               marginTop: '6px',
               padding: '8px 12px',
               borderRadius: '8px',
-              background: '#FEF2F2',
-              border: '1px solid #FECACA',
-              color: '#B91C1C',
+              background: '#450A0A',
+              border: '1px solid #7F1D1D',
+              color: '#FCA5A5',
               fontSize: '13px',
             }}
           >

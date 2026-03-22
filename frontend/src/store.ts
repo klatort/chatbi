@@ -59,6 +59,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       id: assistantId,
       role: 'assistant',
       content: '',
+      blocks: [],
       toolCalls: [],
       streaming: true,
       timestamp: Date.now(),
@@ -158,20 +159,38 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           switch (event.type) {
             case 'token':
               if (event.content) {
-                patchAssistant((m) => ({ content: m.content + event.content }));
+                patchAssistant((m) => {
+                  const blocks = [...(m.blocks ?? [])];
+                  if (blocks.length > 0 && blocks[blocks.length - 1].type === 'text') {
+                    // Append to last text block
+                    const last = { ...blocks[blocks.length - 1] } as { type: 'text', content: string };
+                    last.content += event.content;
+                    blocks[blocks.length - 1] = last;
+                  } else {
+                    // Create new text block
+                    blocks.push({ type: 'text', content: event.content });
+                  }
+                  return { content: m.content + event.content, blocks };
+                });
               }
               break;
 
             case 'tool_call': {
               const tc: ToolCallEvent = {
-                id: event.id ?? uuid(),
+                id: event.id ?? event.name ?? uuid(),
                 name: event.name ?? 'unknown',
                 args: event.args ?? {},
               };
-              console.log(`[ChatBI Agent] 🛠️ Calling MCP Tool: ${tc.name}`, tc.args);
-              patchAssistant((m) => ({
-                toolCalls: [...(m.toolCalls ?? []), tc],
-              }));
+              patchAssistant((m) => {
+                const existing = (m.toolCalls ?? []).find(e => e.id === tc.id);
+                if (existing) return {}; // Deduplicate streaming chunks
+
+                console.log(`[ChatBI Agent] 🛠️ Calling MCP Tool: ${tc.name}`, tc.args);
+                return {
+                  toolCalls: [...(m.toolCalls ?? []), tc],
+                  blocks: [...(m.blocks ?? []), { type: 'tool', toolCall: tc }]
+                };
+              });
               break;
             }
 
@@ -185,11 +204,18 @@ export const useChatStore = create<ChatStore>((set, get) => ({
                   console.log(`[ChatBI Agent] ✅ Tool '${event.name}' Returned data (len=${event.content?.length})`);
                 }
 
-                patchAssistant((m) => ({
-                  toolCalls: (m.toolCalls ?? []).map((tc) =>
+                patchAssistant((m) => {
+                  const toolCalls = (m.toolCalls ?? []).map((tc) =>
                     tc.id === resultId ? { ...tc, result: event.content ?? '' } : tc,
-                  ),
-                }));
+                  );
+                  const blocks = (m.blocks ?? []).map((b) => {
+                    if (b.type === 'tool' && b.toolCall.id === resultId) {
+                      return { ...b, toolCall: { ...b.toolCall, result: event.content ?? '' } };
+                    }
+                    return b;
+                  });
+                  return { toolCalls, blocks };
+                });
               }
               break;
             }
