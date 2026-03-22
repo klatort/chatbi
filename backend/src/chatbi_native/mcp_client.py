@@ -12,10 +12,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from typing import Any
 
 from mcp import ClientSession
-from mcp.client.sse import sse_client
+from mcp.client.stdio import stdio_client, StdioServerParameters
 
 logger = logging.getLogger(__name__)
 
@@ -40,12 +41,17 @@ class SupersetMCPClient:
         self._cm = None  # context manager stack
 
     async def __aenter__(self) -> "SupersetMCPClient":
-        self._cm = sse_client(self.url)
+        server_params = StdioServerParameters(
+            command="mcp-superset",
+            args=[],
+            env=os.environ.copy()
+        )
+        self._cm = stdio_client(server_params)
         (read, write) = await self._cm.__aenter__()
         self._session = ClientSession(read, write)
         await self._session.__aenter__()
         await self._session.initialize()
-        logger.info("Connected to Superset MCP at %s", self.url)
+        logger.info("Connected to Superset MCP natively via local STDIO sub-process")
         return self
 
     async def __aexit__(self, *args: Any) -> None:
