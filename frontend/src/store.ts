@@ -157,29 +157,31 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           }
 
           switch (event.type) {
-            case 'token':
-              if (event.content) {
+            case 'token': {
+              const text = event.content;
+              if (text) {
                 patchAssistant((m) => {
                   const blocks = [...(m.blocks ?? [])];
                   if (blocks.length > 0 && blocks[blocks.length - 1].type === 'text') {
                     // Append to last text block
                     const last = { ...blocks[blocks.length - 1] } as { type: 'text', content: string };
-                    last.content += event.content;
+                    last.content += text;
                     blocks[blocks.length - 1] = last;
                   } else {
                     // Create new text block
-                    blocks.push({ type: 'text', content: event.content });
+                    blocks.push({ type: 'text', content: text });
                   }
-                  return { content: m.content + event.content, blocks };
+                  return { content: m.content + text, blocks };
                 });
               }
               break;
+            }
 
             case 'tool_call': {
               const tc: ToolCallEvent = {
-                id: event.id ?? event.name ?? uuid(),
-                name: event.name ?? 'unknown',
-                args: event.args ?? {},
+                id: event.id || event.name || uuid(),
+                name: event.name || 'unknown',
+                args: event.args || {},
               };
               patchAssistant((m) => {
                 const existing = (m.toolCalls ?? []).find(e => e.id === tc.id);
