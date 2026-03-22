@@ -12,16 +12,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from typing import Any
 
 from mcp import ClientSession
-from mcp.client.stdio import stdio_client, StdioServerParameters
+from mcp.client.sse import sse_client
 
 logger = logging.getLogger(__name__)
 
 # ── Default MCP server URL ────────────────────────────────────────────
-_DEFAULT_MCP_URL = "http://localhost:5008/mcp"
+_DEFAULT_MCP_URL = "http://superset-mcp:5008/sse"
 
 
 class SupersetMCPClient:
@@ -41,17 +40,12 @@ class SupersetMCPClient:
         self._cm = None  # context manager stack
 
     async def __aenter__(self) -> "SupersetMCPClient":
-        server_params = StdioServerParameters(
-            command="mcp-superset",
-            args=[],
-            env=os.environ.copy()
-        )
-        self._cm = stdio_client(server_params)
+        self._cm = sse_client(self.url)
         (read, write) = await self._cm.__aenter__()
         self._session = ClientSession(read, write)
         await self._session.__aenter__()
         await self._session.initialize()
-        logger.info("Connected to Superset MCP natively via local STDIO sub-process")
+        logger.info("Connected to Superset MCP at %s", self.url)
         return self
 
     async def __aexit__(self, *args: Any) -> None:
