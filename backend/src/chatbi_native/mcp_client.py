@@ -89,3 +89,16 @@ def run_mcp_tool(url: str, name: str, arguments: dict[str, Any]) -> Any:
             return await client.call_tool(name, arguments)
 
     return asyncio.run(_run())
+
+
+def run_mcp_list_tools(url: str) -> list[dict[str, Any]]:
+    """
+    Synchronous convenience wrapper for fetching all MCP tools.
+    """
+
+    async def _run() -> list[dict[str, Any]]:
+        async with SupersetMCPClient(url=url) as client:
+            return await client.list_tools()
+
+    return asyncio.run(_run())
+

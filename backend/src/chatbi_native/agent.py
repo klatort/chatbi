@@ -36,7 +36,7 @@ from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 
 from chatbi_native.config import Config
-from chatbi_native.mcp_client import run_mcp_tool
+from chatbi_native.mcp_client import run_mcp_tool, run_mcp_list_tools
 
 logger = logging.getLogger(__name__)
 
@@ -45,15 +45,12 @@ SYSTEM_PROMPT = """\
 You are ChatBI, an expert data analyst assistant embedded inside Apache Superset.
 
 ## Your Capabilities
-You have access to the following Superset MCP tools:
-- **list_datasets** — discover all available datasets in Superset
-- **get_schema** — inspect the columns, types, and sample values for a dataset
-- **execute_sql** — run a SQL query against a Superset database and return results
+You have access to a suite of dynamic Superset MCP tools provided below.
 
 ## Rules You MUST Follow
 1. **Always inspect before answering.** When a user asks about data, ALWAYS call
-   `list_datasets` first (unless they named a specific dataset), then `get_schema`
-   on the relevant dataset(s) before writing any SQL.
+   the dataset discovery tool first (unless they named a specific dataset), then get 
+   the schema on the relevant dataset(s) before writing any SQL.
 2. **Show your reasoning.** Before executing SQL, explain the query plan briefly.
 3. **Be precise with SQL.** Use the exact table/column names from the schema.
 4. **Summarise results clearly.** After executing SQL, present results in a
@@ -63,7 +60,7 @@ You have access to the following Superset MCP tools:
 ## Response Style
 - Be concise and data-focused.
 - When you don't know something, say so and explain how you would find out.
-- Never hallucinate column or table names — always verify via get_schema first.
+- Never hallucinate column or table names — always verify via schema discovery first.
 """
 
 
@@ -76,63 +73,7 @@ class AgentState(dict):
     messages: Annotated[Sequence[BaseMessage], add_messages]
 
 
-# ── LangChain tools wrapping MCP calls ───────────────────────────────
-
-def _make_mcp_tool(tool_name: str, description: str, schema: dict[str, Any]):
-    """
-    Dynamically creates a LangChain @tool that proxies to the Superset MCP.
-    Using a closure so each tool carries its own name and schema.
-    """
-    @tool(tool_name, description=description, args_schema=None, return_direct=False)
-    def _tool(**kwargs: Any) -> str:
-        try:
-            result = run_mcp_tool(Config.MCP_SERVER_URL, tool_name, kwargs)
-            if isinstance(result, (dict, list)):
-                return json.dumps(result, indent=2)
-            return str(result)
-        except Exception as exc:
-            logger.error("MCP tool '%s' failed: %s", tool_name, exc)
-            return f"Error calling {tool_name}: {exc}"
-
-    return _tool
-
-
-# Pre-built MCP tools — matching Superset FastMCP toolset
-list_datasets = _make_mcp_tool(
-    "list_datasets",
-    "List all datasets (tables/views) available in Apache Superset. "
-    "Returns dataset id, name, schema, and database. "
-    "Always call this first when the user asks about their data.",
-    {},
-)
-
-get_schema = _make_mcp_tool(
-    "get_schema",
-    "Get the column schema for a specific Superset dataset. "
-    "Returns column names, types, nullable flags, and sample values. "
-    "Pass dataset_id (from list_datasets) or dataset_name.",
-    {"dataset_id": {"type": "integer"}, "dataset_name": {"type": "string"}},
-)
-
-execute_sql = _make_mcp_tool(
-    "execute_sql",
-    "Execute a SQL query via Superset's SQL Lab. "
-    "Returns up to 1000 rows as a list of dicts. "
-    "Always inspect the schema first so column names are correct.",
-    {
-        "sql": {"type": "string", "description": "The SQL query to execute"},
-        "database_id": {"type": "integer", "description": "Superset database id"},
-    },
-)
-
-get_chart_config = _make_mcp_tool(
-    "get_chart_config",
-    "Fetch the configuration of an existing Superset chart by its id.",
-    {"chart_id": {"type": "integer"}},
-)
-
-# Ordered list registered with the LLM
-SUPERSET_TOOLS = [list_datasets, get_schema, execute_sql, get_chart_config]
+# ── LangChain tools wrapper removed in favor of dynamic raw JSON schema mapping ────
 
 
 # ── LLM factory ──────────────────────────────────────────────────────
@@ -166,7 +107,7 @@ def _build_llm():
 
 # ── Graph nodes ───────────────────────────────────────────────────────
 
-def _agent_node(state: AgentState, llm_with_tools) -> dict:
+def _agent_node(state: AgentState, llm_with_tools, dynamic_tools_names: list[str]) -> dict:
     """
     Agent node: call the LLM (with tools bound) given the current messages.
     Returns the new AI message to append to state.
@@ -174,7 +115,8 @@ def _agent_node(state: AgentState, llm_with_tools) -> dict:
     messages = list(state["messages"])
     # Always inject the system prompt at position 0
     if not messages or not isinstance(messages[0], SystemMessage):
-        messages = [SystemMessage(content=SYSTEM_PROMPT)] + messages
+        dynamic_prompt = SYSTEM_PROMPT + f"\n\nAvailable tools on this server: {', '.join(dynamic_tools_names)}"
+        messages = [SystemMessage(content=dynamic_prompt)] + messages
 
     response: AIMessage = llm_with_tools.invoke(messages)
     return {"messages": [response]}
@@ -185,7 +127,6 @@ def _tools_node(state: AgentState) -> dict:
     Tools node: execute all pending tool_calls from the latest AI message.
     Returns ToolMessage results to append to state.
     """
-    tool_map = {t.name: t for t in SUPERSET_TOOLS}
     last_message: AIMessage = state["messages"][-1]  # type: ignore
     tool_messages: list[ToolMessage] = []
 
@@ -195,16 +136,18 @@ def _tools_node(state: AgentState) -> dict:
         tool_call_id = tc["id"]
 
         logger.info("Executing MCP tool: %s(%s)", tool_name, tool_args)
-        if tool_name in tool_map:
-            try:
-                result = tool_map[tool_name].invoke(tool_args)
-            except Exception as exc:
-                result = f"Tool error: {exc}"
-        else:
-            result = f"Unknown tool: {tool_name}"
+        try:
+            raw_result = run_mcp_tool(Config.MCP_SERVER_URL, tool_name, tool_args)
+            if isinstance(raw_result, (dict, list)):
+                result = json.dumps(raw_result, indent=2)
+            else:
+                result = str(raw_result)
+        except Exception as exc:
+            logger.error("MCP tool '%s' failed: %s", tool_name, exc)
+            result = f"Tool error: {exc}"
 
         tool_messages.append(
-            ToolMessage(content=str(result), tool_call_id=tool_call_id)
+            ToolMessage(content=result, tool_call_id=tool_call_id)
         )
 
     return {"messages": tool_messages}
@@ -225,12 +168,29 @@ def build_graph():
     Build and compile the LangGraph StateGraph.
     Returns a compiled graph ready for `.stream()` calls.
     """
+    mcp_tools_meta = run_mcp_list_tools(Config.MCP_SERVER_URL)
+    dynamic_tools = []
+    discovered_tool_names = []
+
+    for t in mcp_tools_meta:
+        discovered_tool_names.append(t["name"])
+        dynamic_tools.append({
+            "type": "function",
+            "function": {
+                "name": t["name"],
+                "description": t["description"],
+                "parameters": t["inputSchema"]
+            }
+        })
+
+    logger.info("Dynamically loaded %d MCP tools: %s", len(dynamic_tools), discovered_tool_names)
+
     llm = _build_llm()
-    llm_with_tools = llm.bind_tools(SUPERSET_TOOLS)
+    llm_with_tools = llm.bind_tools(dynamic_tools)
 
     # Bind the LLM into the agent node via closure
     def agent_node(state: AgentState) -> dict:
-        return _agent_node(state, llm_with_tools)
+        return _agent_node(state, llm_with_tools, discovered_tool_names)
 
     graph = StateGraph(AgentState)
     graph.add_node("agent", agent_node)
