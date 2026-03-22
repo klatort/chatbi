@@ -178,14 +178,30 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             }
 
             case 'tool_call': {
+              if (!event.id && !event.name) break; // Ignore completely blank ghost chunks
+
               const tc: ToolCallEvent = {
                 id: event.id || event.name || uuid(),
                 name: event.name || 'unknown',
                 args: event.args || {},
               };
               patchAssistant((m) => {
-                const existing = (m.toolCalls ?? []).find(e => e.id === tc.id);
-                if (existing) return {}; // Deduplicate streaming chunks
+                const existingIndex = (m.toolCalls ?? []).findIndex(e => e.id === tc.id);
+                if (existingIndex >= 0) {
+                  // Merge late-arriving chunk args
+                  const toolCalls = [...(m.toolCalls ?? [])];
+                  toolCalls[existingIndex] = { 
+                    ...toolCalls[existingIndex], 
+                    args: Object.keys(tc.args).length > 0 ? tc.args : toolCalls[existingIndex].args 
+                  };
+                  
+                  const blocks = [...(m.blocks ?? [])];
+                  const blockIndex = blocks.findIndex(b => b.type === 'tool' && b.toolCall.id === tc.id);
+                  if (blockIndex >= 0) {
+                    blocks[blockIndex] = { type: 'tool', toolCall: toolCalls[existingIndex] };
+                  }
+                  return { toolCalls, blocks };
+                }
 
                 console.log(`[ChatBI Agent] 🛠️ Calling MCP Tool: ${tc.name}`, tc.args);
                 return {
