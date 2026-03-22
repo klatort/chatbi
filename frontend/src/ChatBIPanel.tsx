@@ -1,19 +1,3 @@
-/**
- * ChatBIPanel — Full Floating Chat Panel (Phase 3)
- * ==================================================
- * A globally available, collapsible chat panel that connects to the
- * ChatBI LangGraph backend and streams Agentic BI responses.
- *
- * Features:
- *  - Floating Action Button (FAB) in bottom-right corner
- *  - Smooth slide-up animation
- *  - Streaming token responses with blinking cursor
- *  - MCP tool call cards (collapsible, with spinner)
- *  - Lightweight markdown rendering (bold, code, headings, bullets)
- *  - Full conversation history maintained in Zustand store
- *  - Keyboard: Enter to send, Shift+Enter for newline, Escape to close
- */
-
 import React, { useEffect, useRef, useCallback } from 'react';
 import { useChatStore } from './store';
 import { MessageBubble } from './MessageBubble';
@@ -55,6 +39,18 @@ const SparkleIcon = () => (
   </svg>
 );
 
+const MenuIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+    <path d="M4 6h16M4 12h16M4 18h16"/>
+  </svg>
+);
+
+const TrashIcon = () => (
+   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+     <polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+   </svg>
+);
+
 // ── Prompt suggestions ─────────────────────────────────────────────────
 
 const SUGGESTIONS = [
@@ -67,33 +63,47 @@ const SUGGESTIONS = [
 // ── Component ─────────────────────────────────────────────────────────
 
 export const ChatBIPanel: React.FC = () => {
-  const { isOpen, isStreaming, messages, toggle, close, sendMessage, clearHistory } =
-    useChatStore();
+  const { 
+    isOpen, isStreaming, toggle, close, sendMessage, clearHistory,
+    sessions, activeSessionId, fetchSessions, createNewSession, switchSession, deleteSession
+  } = useChatStore();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [inputValue, setInputValue] = React.useState('');
+  const [showSessions, setShowSessions] = React.useState(false);
 
-  // Auto-scroll to bottom as messages update
+  // Dynamically resolve the payload for the active UI thread
+  const messages = activeSessionId && sessions[activeSessionId] ? sessions[activeSessionId].messages : [];
+
+  // Fetch db histories
+  useEffect(() => {
+    fetchSessions();
+  }, [fetchSessions]);
+
+  // Auto-scroll to bottom as messages stream
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Focus input when panel opens
+  // Focus input when panel opens or session swaps
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && !showSessions) {
       setTimeout(() => inputRef.current?.focus(), 100);
     }
-  }, [isOpen]);
+  }, [isOpen, showSessions]);
 
   // Close on Escape
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) close();
+      if (e.key === 'Escape' && isOpen) {
+        if (showSessions) setShowSessions(false);
+        else close();
+      }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [isOpen, close]);
+  }, [isOpen, showSessions, close]);
 
   const handleSend = useCallback(() => {
     const text = inputValue.trim();
@@ -150,6 +160,7 @@ export const ChatBIPanel: React.FC = () => {
           100% { transform: scale(1); opacity: 1; }
         }
         #chatbi-fab { animation: chatbi-fab-pop 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+        .chatbi-session-card:hover { border-color: #20A7C9 !important; background: #222 !important; }
       `}</style>
 
       {/* ── Floating Action Button ──────────────────────────────────── */}
@@ -223,18 +234,26 @@ export const ChatBIPanel: React.FC = () => {
               flexShrink: 0,
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <div style={{
-                width: '32px', height: '32px', borderRadius: '10px',
-                background: 'rgba(255,255,255,0.2)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
-                <SparkleIcon />
-              </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <button
+                onClick={() => setShowSessions(!showSessions)}
+                title="View Chat History"
+                style={{
+                  width: '32px', height: '32px', borderRadius: '10px',
+                  background: showSessions ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.15)',
+                  border: 'none', cursor: 'pointer', color: '#FFF',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  transition: 'background 0.2s', padding: 0
+                }}
+              >
+                <MenuIcon />
+              </button>
               <div>
-                <div style={{ fontSize: '15px', fontWeight: 700, letterSpacing: '-0.2px' }}>ChatBI</div>
+                <div style={{ fontSize: '15px', fontWeight: 700, letterSpacing: '-0.2px' }}>
+                  {showSessions ? 'Chat History' : (activeSessionId && sessions[activeSessionId] ? sessions[activeSessionId].title : 'ChatBI')}
+                </div>
                 <div style={{ fontSize: '11px', opacity: 0.8, marginTop: '1px' }}>
-                  {isStreaming ? (
+                  {isStreaming && !showSessions ? (
                     <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                       <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#5AC189', display: 'inline-block', animation: 'chatbi-blink 1s step-end infinite' }} />
                       Thinking…
@@ -243,8 +262,9 @@ export const ChatBIPanel: React.FC = () => {
                 </div>
               </div>
             </div>
+            
             <div style={{ display: 'flex', gap: '6px' }}>
-              {hasMessages && (
+              {hasMessages && !showSessions && (
                 <button
                   onClick={clearHistory}
                   title="Clear conversation"
@@ -279,7 +299,7 @@ export const ChatBIPanel: React.FC = () => {
             </div>
           </div>
 
-          {/* ── Messages ───────────────────────────────────────────── */}
+          {/* ── Main Canvas ───────────────────────────────────────────── */}
           <div
             className="chatbi-scrollbar"
             style={{
@@ -288,9 +308,56 @@ export const ChatBIPanel: React.FC = () => {
               padding: '16px',
               display: 'flex',
               flexDirection: 'column',
+              background: '#1F1F1F'
             }}
           >
-            {!hasMessages ? (
+            {showSessions ? (
+              /* ── Sessions View ── */
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <button
+                  onClick={() => { createNewSession(); setShowSessions(false); }}
+                  style={{
+                    padding: '14px', borderRadius: '12px', background: 'linear-gradient(135deg, #20A7C9 0%, #127D96 100%)',
+                    color: '#FFF', border: 'none', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '14px',
+                    boxShadow: '0 4px 12px rgba(32,167,201,0.3)', transition: 'transform 0.1s'
+                  }}
+                  onMouseDown={(e) => e.currentTarget.style.transform = 'scale(0.98)'}
+                  onMouseUp={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                >
+                  <SparkleIcon /> Start a New Chat
+                </button>
+                <div style={{ marginTop: '16px', fontSize: '11px', fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Recent Conversations
+                </div>
+                {Object.values(sessions).sort((a,b) => b.updatedAt - a.updatedAt).map(s => (
+                  <div key={s.id} className="chatbi-session-card" style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    padding: '14px', background: s.id === activeSessionId ? '#262626' : '#1A1A1A',
+                    border: `1.5px solid ${s.id === activeSessionId ? '#20A7C9' : '#333'}`,
+                    borderRadius: '12px', cursor: 'pointer', transition: 'border-color 0.2s, background 0.2s'
+                  }} onClick={() => { switchSession(s.id); setShowSessions(false); }}>
+                    <div style={{ overflow: 'hidden', flex: 1, paddingRight: '12px' }}>
+                      <div style={{ fontSize: '14px', color: '#F3F4F6', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', fontWeight: s.id === activeSessionId ? 600 : 400 }}>
+                        {s.title}
+                      </div>
+                      <div style={{ fontSize: '11px', color: '#6B7280', marginTop: '6px' }}>
+                        {new Date(s.updatedAt).toLocaleDateString()} • {s.messages.length} messages
+                      </div>
+                    </div>
+                    <button onClick={(e) => { e.stopPropagation(); deleteSession(s.id); }} style={{
+                      background: 'rgba(239, 68, 68, 0.1)', border: 'none', color: '#EF4444', cursor: 'pointer', padding: '8px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center'
+                    }} title="Delete Chat" onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(239, 68, 68, 0.2)'} onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)'}>
+                      <TrashIcon />
+                    </button>
+                  </div>
+                ))}
+                {Object.keys(sessions).length === 0 && (
+                  <div style={{ textAlign: 'center', color: '#6B7280', fontSize: '13px', marginTop: '30px' }}>
+                    No historical chats found.
+                  </div>
+                )}
+              </div>
+            ) : !hasMessages ? (
               /* ── Welcome / empty state ── */
               <div style={{
                 flex: 1,
@@ -304,9 +371,11 @@ export const ChatBIPanel: React.FC = () => {
               }}>
                 <div style={{
                   width: '52px', height: '52px', borderRadius: '14px',
-                  background: 'linear-gradient(135deg, #E0F4F8 0%, #C8E8F0 100%)',
+                  background: 'linear-gradient(135deg, #1A3E47 0%, #152C33 100%)',
+                  border: '1px solid #20A7C9',
+                  color: '#20A7C9',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: '24px',
+                  fontSize: '24px', boxShadow: '0 4px 20px rgba(32,167,201,0.2)'
                 }}>
                   ✦
                 </div>
@@ -371,6 +440,11 @@ export const ChatBIPanel: React.FC = () => {
               flexShrink: 0,
             }}
           >
+            {showSessions ? (
+               <div style={{ fontSize: '12px', color: '#6B7280', textAlign: 'center', padding: '8px 0' }}>
+                 Your session data is securely stored and synced.
+               </div>
+            ) : (
             <div
               style={{
                 display: 'flex',
@@ -449,9 +523,12 @@ export const ChatBIPanel: React.FC = () => {
                 )}
               </button>
             </div>
-            <div style={{ fontSize: '11px', color: '#9CA3AF', textAlign: 'center', marginTop: '6px' }}>
-              Shift+Enter for new line · Esc to close
-            </div>
+            )}
+            {!showSessions && (
+              <div style={{ fontSize: '11px', color: '#9CA3AF', textAlign: 'center', marginTop: '6px' }}>
+                Shift+Enter for new line · Esc to close
+              </div>
+            )}
           </div>
         </div>
       )}

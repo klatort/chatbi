@@ -157,9 +157,48 @@ def health() -> Response:
     return jsonify({
         "status": status,
         "extension": "chatbi-native",
-        "version": "0.2.0",
+        "version": "0.3.0",
     })
 
+# ── Multi-Session Routing ─────────────────────────────────────────────
+def get_user_id() -> str:
+    from flask import g
+    if hasattr(g, 'user') and getattr(g.user, 'username', None):
+        return str(g.user.username)
+    return "anonymous"
+
+@blueprint.route("/sessions", methods=["GET"])
+def fetch_sessions() -> Response:
+    from chatbi_native.db import get_user_sessions
+    try:
+        sessions = get_user_sessions(get_user_id())
+        return jsonify(sessions)
+    except Exception as e:
+        logger.error(f"Failed to fetch sessions: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@blueprint.route("/sessions/sync", methods=["POST"])
+def sync_session() -> Response:
+    from chatbi_native.db import save_session
+    try:
+        session_data = request.get_json(silent=True)
+        if not session_data or 'id' not in session_data or 'title' not in session_data:
+            return jsonify({"error": "Invalid session data schema"}), 400
+        save_session(get_user_id(), session_data)
+        return jsonify({"status": "ok"})
+    except Exception as e:
+        logger.error(f"Failed to sync backend session: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@blueprint.route("/sessions/<session_id>", methods=["DELETE"])
+def remove_session(session_id: str) -> Response:
+    from chatbi_native.db import delete_session
+    try:
+        delete_session(get_user_id(), session_id)
+        return jsonify({"status": "ok"})
+    except Exception as e:
+        logger.error(f"Failed to delete backend session: {e}")
+        return jsonify({"error": str(e)}), 500
 
 # ── Chat Endpoint ─────────────────────────────────────────────────────
 @blueprint.route("/chat", methods=["POST"])

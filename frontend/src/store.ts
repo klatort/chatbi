@@ -2,15 +2,13 @@
  * Zustand store for the ChatBI panel.
  *
  * Responsibilities:
- *  - Track conversation messages
- *  - Open/close panel state
+ *  - Track isolated multi-tenant chat sessions synchronized with the backend
  *  - Stream assistant responses from the backend SSE endpoint,
- *    accumulating tokens into the last assistant message in real time
- *    and capturing tool_call / tool_result events as structured metadata.
+ *    accumulating tokens into the active session block
  */
 
 import { create } from 'zustand';
-import type { ChatMessage, ChatStore, SSEEvent, ToolCallEvent } from './types';
+import type { ChatMessage, ChatStore, SSEEvent, ToolCallEvent, ChatSession } from './types';
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
@@ -26,7 +24,8 @@ const BACKEND_URL =
 // ── Store ─────────────────────────────────────────────────────────────
 
 export const useChatStore = create<ChatStore>((set, get) => ({
-  messages: [],
+  sessions: {},
+  activeSessionId: null,
   isOpen: false,
   isStreaming: false,
   backendUrl: BACKEND_URL,
@@ -38,12 +37,126 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   setBackendUrl: (url: string) => set({ backendUrl: url }),
 
-  clearHistory: () => set({ messages: [] }),
+  clearHistory: () => {
+    const { activeSessionId } = get();
+    if (activeSessionId) {
+      set(s => ({
+        sessions: {
+          ...s.sessions,
+          [activeSessionId]: { ...s.sessions[activeSessionId], messages: [], updatedAt: Date.now() }
+        }
+      }));
+      get().syncSession(activeSessionId);
+    }
+  },
+
+  // ── Session Management ─────────────────────────────────────────────
+
+  createNewSession: () => {
+    const id = uuid();
+    const newSession: ChatSession = { id, title: 'New Chat', messages: [], updatedAt: Date.now() };
+    set(s => ({
+      sessions: { ...s.sessions, [id]: newSession },
+      activeSessionId: id
+    }));
+  },
+
+  switchSession: (sessionId: string) => {
+    set({ activeSessionId: sessionId });
+  },
+
+  deleteSession: async (sessionId: string) => {
+    const { backendUrl, activeSessionId } = get();
+    
+    // Optimistic UI updates
+    set(s => {
+      const { [sessionId]: _, ...rest } = s.sessions;
+      const remainingIds = Object.keys(rest).sort((a,b) => rest[b].updatedAt - rest[a].updatedAt);
+      
+      return { 
+        sessions: rest,
+        activeSessionId: activeSessionId === sessionId ? (remainingIds[0] || null) : activeSessionId
+      };
+    });
+    
+    try {
+      await fetch(`${backendUrl}/extensions/chatbi-native/sessions/${sessionId}`, { method: 'DELETE' });
+    } catch (e) {
+      console.error('[ChatBI] Failed to delete session', e);
+    }
+  },
+
+  fetchSessions: async () => {
+    const { backendUrl } = get();
+    try {
+      const res = await fetch(`${backendUrl}/extensions/chatbi-native/sessions`, {
+          headers: { 'Cache-Control': 'no-cache' }
+      });
+      if (res.ok) {
+        const data: ChatSession[] = await res.json();
+        const map: Record<string, ChatSession> = {};
+        data.forEach(d => map[d.id] = d);
+        
+        set(s => ({
+          sessions: map,
+          // Select latest or spawn new if everything empty
+          activeSessionId: s.activeSessionId && map[s.activeSessionId] 
+            ? s.activeSessionId 
+            : (data.length > 0 ? data[0].id : null)
+        }));
+      }
+    } catch (e) {
+      console.error('[ChatBI] Failed to fetch sessions', e);
+    }
+  },
+
+  syncSession: async (sessionId: string) => {
+    const { backendUrl, sessions } = get();
+    const session = sessions[sessionId];
+    if (!session) return;
+    
+    // Auto-generate title if it's "New Chat" and has messages
+    if (session.title === 'New Chat' && session.messages.length > 0) {
+      const firstUser = session.messages.find(m => m.role === 'user');
+      if (firstUser) {
+        session.title = firstUser.content.slice(0, 30) + (firstUser.content.length > 30 ? '...' : '');
+      }
+    }
+
+    try {
+      let csrfToken = '';
+      if (typeof window !== 'undefined') {
+        const csrfEl = document.getElementById('csrf_token') as HTMLInputElement;
+        if (csrfEl) csrfToken = csrfEl.value;
+      }
+
+      await fetch(`${backendUrl}/extensions/chatbi-native/sessions/sync`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify(session)
+      });
+    } catch (e) {
+      console.error('[ChatBI] Failed to sync session', e);
+    }
+  },
 
   // ── Send message & stream response ────────────────────────────────
   sendMessage: async (text: string) => {
-    const { messages, backendUrl, isStreaming } = get();
+    const { backendUrl, isStreaming } = get();
     if (!text.trim() || isStreaming) return;
+
+    let { activeSessionId, sessions } = get();
+    
+    // Auto-spawn session if user is engaging an empty store
+    if (!activeSessionId) {
+      get().createNewSession();
+      activeSessionId = get().activeSessionId!;
+    }
+
+    const currentMessages = get().sessions[activeSessionId]?.messages || [];
 
     // 1. Append the user message
     const userMsg: ChatMessage = {
@@ -65,20 +178,46 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       timestamp: Date.now(),
     };
 
-    set({ messages: [...messages, userMsg, assistantMsg], isStreaming: true });
+    // 3. Inject eagerly into Active Session
+    set(s => {
+      const target = s.sessions[activeSessionId!];
+      return {
+        isStreaming: true,
+        sessions: {
+          ...s.sessions,
+          [activeSessionId!]: {
+            ...target,
+            messages: [...currentMessages, userMsg, assistantMsg],
+            updatedAt: Date.now()
+          }
+        }
+      };
+    });
 
-    // Helper to patch the last assistant message immutably
+    // Helper to patch the last assistant message strictly within the active session
     const patchAssistant = (updater: (m: ChatMessage) => Partial<ChatMessage>) => {
-      set((state) => ({
-        messages: state.messages.map((m) =>
-          m.id === assistantId ? { ...m, ...updater(m) } : m,
-        ),
-      }));
+      set((state) => {
+        const tempTarget = state.sessions[activeSessionId!];
+        if (!tempTarget) return state;
+        return {
+          sessions: {
+            ...state.sessions,
+            [activeSessionId!]: {
+              ...tempTarget,
+              messages: tempTarget.messages.map((m) =>
+                m.id === assistantId ? { ...m, ...updater(m) } : m,
+              ),
+              updatedAt: Date.now() // bump timestamp on every chunk
+            }
+          }
+        };
+      });
     };
 
     try {
       // Build conversation history for the backend (excluding the placeholder)
-      const history = [...messages, userMsg].map((m) => ({
+      const executionMessages = [...currentMessages, userMsg];
+      const history = executionMessages.map((m) => ({
         role: m.role,
         content: m.content,
       }));
@@ -101,7 +240,6 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             contextStr = `\n\n[System Context: User is exploring Chart/Slice ID: ${sliceId}]`;
           }
         }
-        console.log('[ChatBI] Backend Payload Augmented Context:', contextStr || '(None matches)');
       }
 
       let csrfToken = '';
@@ -126,13 +264,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
-      // 3. Stream SSE chunks
+      // 4. Stream SSE chunks
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
-
-      // We no longer rely on a fragile single pending ID.
-      // LangGraph parallelly yields explicit IDs.
 
       while (true) {
         const { done, value } = await reader.read();
@@ -263,6 +398,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     } finally {
       set({ isStreaming: false });
       patchAssistant(() => ({ streaming: false }));
+      // 💥 Fire sync event to backup the LLM generation block mapping securely into SQLite
+      get().syncSession(activeSessionId!);
     }
   },
 }));

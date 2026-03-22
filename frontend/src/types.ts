@@ -46,20 +46,36 @@ export interface ChatMessage {
   timestamp: number;
 }
 
+export interface ChatSession {
+  id: string;
+  title: string;
+  messages: ChatMessage[];
+  updatedAt: number;
+}
+
 /** Store shape */
 export interface ChatStore {
-  // ── State ──────────────────────────────────────────────────────────
-  messages: ChatMessage[];
+  // ── Multi-session State ────────────────────────────────────────────
+  sessions: Record<string, ChatSession>;
+  activeSessionId: string | null;
+
+  // ── Transient State ────────────────────────────────────────────────
   isOpen: boolean;
   isStreaming: boolean;
-  /** Backend base URL — defaults to same origin, can be overridden */
   backendUrl: string;
 
   // ── Actions ────────────────────────────────────────────────────────
   toggle: () => void;
   open: () => void;
   close: () => void;
+  
+  // Session Actions
+  fetchSessions: () => Promise<void>;
+  syncSession: (sessionId: string) => Promise<void>;
+  createNewSession: () => void;
+  switchSession: (sessionId: string) => void;
+  deleteSession: (sessionId: string) => Promise<void>;
+  clearHistory: () => void; // Clears active session
   sendMessage: (text: string) => Promise<void>;
-  clearHistory: () => void;
   setBackendUrl: (url: string) => void;
 }

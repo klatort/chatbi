@@ -11,6 +11,8 @@ backend/.pytest_cache/
 backend/.ruff_cache/
 **/*.pyc
 **/*.pyo
+*.db
+backend/src/chatbi_native/chatbi_sessions.db
 
 # ── Secrets ───────────────────────────────────────────────────────────
 backend/.env
