@@ -7,7 +7,16 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-DB_PATH = os.path.join(os.path.dirname(__file__), 'chatbi_sessions.db')
+# Route directly to the official Superset data directory which is guaranteed
+# to be writable strictly by the `superset` user mapped natively in the Dockerfile.
+_SUPERSET_HOME = os.environ.get('SUPERSET_HOME', os.path.expanduser('~/.superset'))
+if not os.path.exists(_SUPERSET_HOME):
+    try:
+        os.makedirs(_SUPERSET_HOME, exist_ok=True)
+    except:
+        _SUPERSET_HOME = '/tmp'  # ultimate fallback
+
+DB_PATH = os.path.join(_SUPERSET_HOME, 'chatbi_sessions.db')
 
 def get_connection():
     conn = sqlite3.connect(DB_PATH)
