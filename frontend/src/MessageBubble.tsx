@@ -19,7 +19,8 @@ import { ToolCallBadge } from './ToolCallBadge';
    Full markdown would require a library; this covers BI responses well. */
 
 function renderMarkdown(text: string): React.ReactNode[] {
-  const lines = text.split('\n');
+  // Collapse trailing newlines so the LLM doesn't generate massive padding gaps before tool calls
+  const lines = text.trimEnd().split('\n');
   const result: React.ReactNode[] = [];
   let inCodeBlock = false;
   let codeLines: string[] = [];
@@ -178,25 +179,27 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
       </div>
 
       <div style={{ flex: 1, minWidth: 0 }}>
-        {/* Render interleaved blocks */}
+        {/* Render interleaved blocks in a SINGLE unified bubble */}
         {(message.blocks?.length ?? 0) > 0 ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div
+            style={{
+              background: '#2A2A2A',
+              border: '1px solid #3A3A3A',
+              borderRadius: '4px 16px 16px 16px',
+              padding: '12px 14px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '12px',
+              color: '#F3F4F6',
+              wordBreak: 'break-word',
+              fontSize: '14px',
+              lineHeight: '1.6',
+            }}
+          >
             {message.blocks!.map((block, idx) => {
               if (block.type === 'text') {
                 return (
-                  <div
-                    key={`text-${idx}`}
-                    style={{
-                      background: '#2A2A2A',
-                      border: '1px solid #3A3A3A',
-                      borderRadius: '4px 16px 16px 16px',
-                      padding: '10px 14px',
-                      fontSize: '14px',
-                      lineHeight: '1.6',
-                      color: '#F3F4F6',
-                      wordBreak: 'break-word',
-                    }}
-                  >
+                  <div key={`text-${idx}`} style={{ display: 'block' }}>
                     {renderMarkdown(block.content)}
                     {/* Blinking cursor if this is the last block and streaming */}
                     {message.streaming && idx === message.blocks!.length - 1 && (
@@ -232,6 +235,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
                 display: 'flex',
                 gap: '4px',
                 alignItems: 'center',
+                width: 'fit-content'
               }}
             >
               {[0, 1, 2].map((i) => (

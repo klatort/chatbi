@@ -80,7 +80,16 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     });
     
     try {
-      await fetch(`${backendUrl}/extensions/chatbi-native/sessions/${sessionId}`, { method: 'DELETE' });
+      let csrfToken = '';
+      if (typeof window !== 'undefined') {
+        const csrfEl = document.getElementById('csrf_token') as HTMLInputElement;
+        if (csrfEl) csrfToken = csrfEl.value;
+      }
+      await fetch(`${backendUrl}/extensions/chatbi-native/sessions/${sessionId}`, { 
+        method: 'DELETE',
+        credentials: 'same-origin',
+        headers: { 'X-CSRFToken': csrfToken }
+      });
     } catch (e) {
       console.error('[ChatBI] Failed to delete session', e);
     }
@@ -90,6 +99,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     const { backendUrl } = get();
     try {
       const res = await fetch(`${backendUrl}/extensions/chatbi-native/sessions`, {
+          credentials: 'same-origin',
           headers: { 'Cache-Control': 'no-cache' }
       });
       if (res.ok) {
@@ -132,6 +142,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
       await fetch(`${backendUrl}/extensions/chatbi-native/sessions/sync`, {
         method: 'POST',
+        credentials: 'same-origin',
         headers: { 
           'Content-Type': 'application/json',
           'X-CSRFToken': csrfToken
@@ -252,6 +263,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         `${backendUrl}/extensions/chatbi-native/chat`,
         {
           method: 'POST',
+          credentials: 'same-origin',
           headers: { 
             'Content-Type': 'application/json',
             'X-CSRFToken': csrfToken
