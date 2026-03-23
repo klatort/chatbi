@@ -30,10 +30,13 @@ from langchain_core.messages import (
     SystemMessage,
     ToolMessage,
 )
-from langchain_core.tools import tool
+from langchain.tools import tool
+from langchain_core.tools import ToolException
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
+from pydantic import BaseModel, Field
+from typing import List, Literal, Optional
 
 from chatbi_native.config import Config
 from chatbi_native.mcp_client import run_mcp_tool, run_mcp_list_tools
@@ -42,42 +45,19 @@ logger = logging.getLogger(__name__)
 
 # ── System prompt ─────────────────────────────────────────────────────
 SYSTEM_PROMPT = """\
-You are ChatBI, an elite Apache Superset Data Architect and Analytics Engineer.
+You are ChatBI, an elite Apache Superset Data Architect.
+Your core behavior: Data-Driven, Factual, and Direct.
 
-## Personality & Role
-- **Data-Driven & Factual:** "Data says more than words." You communicate purely in actionable insights, statistically significant findings, and empirical facts.
-- **Anti-Sycophantic:** You must NEVER exhibit confirmation bias or be blindly complacent with the user. If the data contradicts a user's assumption or proposed metric, you must explicitly challenge their premise using the dataset's actual schema or query results.
-- **Straight to the Point:** Eliminate pleasantries, filler words, and long-winded narration. State the facts, present the evidence, and outline the technical execution steps cleanly.
+WORKFLOW (MANDATORY SEQUENCE):
+1. SEARCH: Find the relevant dataset ID.
+2. SCHEMA VALIDATION: You MUST call `get_dataset_schema` to fetch exact column names. Do not guess.
+3. EXECUTE: Call `create_superset_chart` or `add_chart_to_dashboard`.
+4. RESPOND: Only report success after the tool returns a confirmation.
 
-## Core Behavioral Guardrails
-1. **STRICTLY SUPERSET FOCUS:** You exist ONLY to assist with Apache Superset data querying, dashboarding, and visualization tasks. If the user asks about general programming, history, or anything unrelated to their Superset environment, politely refuse.
-2. **DO NOT INVENT PROPERTIES:** If the user asks to do something Apache Superset is NOT capable of doing natively through its chart/dashboard API (like injecting Markdown as a Chart, or applying unsupported CSS properties), explicitly explain WHY it is not possible instead of hallucinating fake configurations, properties, or chart endpoints.
-3. **NEVER HALLUCINATE ACTIONS (STRICT RULE):** Do NOT claim to have created a chart, executed a query, or verified a state unless you have ACTUALLY called an MCP tool and successfully received its result. You DO NOT know the state of Superset unless a tool explicitly tells you. If you propose an action, you MUST use the corresponding tool to perform it. You must accurately state when an action has not been done.
-4. **ZERO CUSTOMIZATION POLICY:** Superset APIs are extremely fragile. You are permanently banned from attempting to 'beautify' or 'customize' charts or dashboards. When executing API MCP tools, NEVER add `css`, `style`, `color_scheme`, `margin`, `layout`, `position`, or any advanced layout metadata to the JSON payload. Pass ONLY the absolute mandatory database identifiers (e.g., `dashboard_id`, `chart_id`, `slice_id`, `datasource_id`) and nothing else. Every extra optional parameter you try to magically guess or invent WILL crash the server!
-
-## Analytical Implementation & Insight Generation
-When performing Business Intelligence implementation, you must extract high-value insights rather than just returning raw rows:
-1. **Search First:** Use tools to see if a relevant Dataset exists. Do not duplicate datasets.
-2. **Schema Validation:** ALWAYS fetch the schema before querying or building charts. You must use exact column names from the schema.
-3. **Deep Insight Extraction:** When executing SQL or analyzing metrics, look for anomalies, outliers, trends over time, or comparative deltas. Do not just output numbers—highlight the business implication of those numbers factually.
-4. **Execution over Speculation:** Do not just suggest a query. Write the SQL, execute it via MCP tools, and analyze the concrete output.
-
-## Strict Chart & Dashboard Limitations
-When calling any chart-building MCP tools (`create_chart`, `add_chart_to_dashboard`), you are strictly bound by the parameters accepted by the Superset API. 
-**CRITICAL:** NEVER invent properties, layout configurations, or parameters that do not exist explicitly in the tool's JSON schema!
-- **Markdown & Layouts:** Markdown text, Tabs, Row/Column blocks, and Headers are **Dashboard Layout Elements**. They are NOT chart slices. Do NOT attempt to use `create_chart` to add Markdown. Inform the user they must drag-and-drop a Text/Markdown element in the Dashboard Builder UI.
-- **Dashboard Layouts & Slices:** When adding charts to a dashboard or modifying dashboards, **DO NOT ADD EXTRA DATA OR CUSTOMIZATIONS**. Provide ONLY the absolute minimum required properties. Just attach the standard blocks and leave styling out completely.
-- **Required Chart Parameters:** 
-  - Time-Series requires an exact `X-Axis (Date Column)`.
-  - Bar/Column requires `X-Axis (Category)`, `Metrics (Y-Axis)`.
-  - Pie/Treemap requires `Dimension` and `Metric`.
-- **STRICT DATA TYPE ENFORCEMENT:** When passing columns (like `groupby`, `columns`, `metrics`, etc.), you MUST pass a direct array of STRINGS (e.g., `["country", "gender"]`). **DO NOT** pass dictionaries or ad-hoc JSON objects (e.g., `[{"column": "country"}]`). Passing a dictionary will crash the `update()` function on the Superset backend!
-- Do not pass parameters like `margin`, `color_scheme`, `layout`, `css`, `position`, or arbitrary keys! Provide ONLY what is absolutely mandatory.
-
-## Formatting
-- Use concise Markdown. Highlight key metrics in bold.
-- If recommending a chart manually, provide a brief **📊 Recommended Visualization** note specifying exact axes based entirely on the existing schema.
-- Avoid yapping. Deliver actionable results immediately.
+STRICT API RULES:
+- Never pass UI, CSS, layout, margin, or color properties to the API. 
+- Arrays (like metrics or groupby) must be flat arrays of strings: ["col1", "col2"]. Never pass dictionaries.
+- If a tool returns an error, read the error message, correct your JSON payload, and call the tool again.
 """
 
 
@@ -90,7 +70,113 @@ class AgentState(dict):
     messages: Annotated[Sequence[BaseMessage], add_messages]
 
 
-# ── LangChain tools wrapper removed in favor of dynamic raw JSON schema mapping ────
+# ── Tools ─────────────────────────────────────────────────────────────
+
+class ListDatasetsSchema(BaseModel):
+    query: str = Field(
+        default="",
+        description="Optional search query to filter datasets by name."
+    )
+
+class GetDatasetSchemaSchema(BaseModel):
+    datasource_id: int = Field(
+        ...,
+        description="The exact integer ID of the dataset to get the schema for."
+    )
+
+class ExecuteSqlSchema(BaseModel):
+    query: str = Field(
+        ...,
+        description="The SQL query to execute. Must use valid SQL syntax."
+    )
+    database_id: int = Field(
+        ...,
+        description="The ID of the database to execute the query against."
+    )
+
+class CreateSupersetChartSchema(BaseModel):
+    datasource_id: int = Field(
+        ..., 
+        description="The exact integer ID of the dataset. Must be verified via get_dataset_schema first."
+    )
+    viz_type: Literal["echarts_timeseries", "pie", "big_number_total", "table", "bar"] = Field(
+        ..., 
+        description="The chart type. You are RESTRICTED to these exact string values. Do not invent others."
+    )
+    metrics: List[str] = Field(
+        ..., 
+        description="A flat array of strings representing the metrics. Example: ['count', 'sum__amount']. FORBIDDEN: Do not pass lists of dictionaries."
+    )
+    groupby: List[str] = Field(
+        default=[], 
+        description="A flat array of strings representing columns to group by. Example: ['country_name']. FORBIDDEN: Do not pass dictionaries."
+    )
+
+class AddChartToDashboardSchema(BaseModel):
+    dashboard_id: int = Field(
+        ...,
+        description="The integer ID of the dashboard."
+    )
+    chart_id: int = Field(
+        ...,
+        description="The integer ID of the chart to add."
+    )
+
+@tool("list_datasets", args_schema=ListDatasetsSchema, handle_tool_error=True)
+def list_datasets(query: str = ""):
+    """Lists available datasets matching an optional query."""
+    try:
+        return run_mcp_tool(Config.MCP_SERVER_URL, "list_datasets", {"query": query})
+    except Exception as e:
+        raise ToolException(f"Superset API Error: {str(e)}")
+
+@tool("get_dataset_schema", args_schema=GetDatasetSchemaSchema, handle_tool_error=True)
+def get_dataset_schema(datasource_id: int):
+    """Gets the schema (columns, types, etc.) for a specific dataset ID."""
+    try:
+        return run_mcp_tool(Config.MCP_SERVER_URL, "get_dataset_schema", {"datasource_id": datasource_id})
+    except Exception as e:
+        raise ToolException(f"Superset API Error: {str(e)}")
+
+@tool("execute_sql", args_schema=ExecuteSqlSchema, handle_tool_error=True)
+def execute_sql(query: str, database_id: int):
+    """Executes a SQL query on a given database ID."""
+    try:
+        return run_mcp_tool(Config.MCP_SERVER_URL, "execute_sql", {"query": query, "database_id": database_id})
+    except Exception as e:
+        raise ToolException(f"Superset API Error: {str(e)}")
+
+@tool("create_superset_chart", args_schema=CreateSupersetChartSchema, handle_tool_error=True)
+def create_superset_chart(datasource_id: int, viz_type: str, metrics: List[str], groupby: Optional[List[str]] = None):
+    """
+    Creates a new chart in Apache Superset.
+    WARNING: Only pass the absolute minimum required properties. Do NOT invent layout, css, or color properties.
+    """
+    try:
+        args = {
+            "datasource_id": datasource_id,
+            "viz_type": viz_type,
+            "metrics": metrics,
+            "groupby": groupby or []
+        }
+        return run_mcp_tool(Config.MCP_SERVER_URL, "create_superset_chart", args)
+    except Exception as e:
+        raise ToolException(
+            f"Superset API Error: {str(e)}. "
+            "Your payload was rejected. Review the JSON schema, remove any forbidden/invented properties (like UI/layout keys), "
+            "ensure arrays contain only strings, and try again."
+        )
+
+@tool("add_chart_to_dashboard", args_schema=AddChartToDashboardSchema, handle_tool_error=True)
+def add_chart_to_dashboard(dashboard_id: int, chart_id: int):
+    """Adds a newly created chart to an existing dashboard."""
+    try:
+        return run_mcp_tool(Config.MCP_SERVER_URL, "add_chart_to_dashboard", {"dashboard_id": dashboard_id, "chart_id": chart_id})
+    except Exception as e:
+        raise ToolException(f"Superset API Error: {str(e)}")
+
+ALL_TOOLS = [list_datasets, get_dataset_schema, execute_sql, create_superset_chart, add_chart_to_dashboard]
+
 
 
 # ── LLM factory ──────────────────────────────────────────────────────
@@ -124,7 +210,7 @@ def _build_llm():
 
 # ── Graph nodes ───────────────────────────────────────────────────────
 
-def _agent_node(state: AgentState, llm_with_tools, dynamic_tools_names: list[str]) -> dict:
+def _agent_node(state: AgentState, llm_with_tools) -> dict:
     """
     Agent node: call the LLM (with tools bound) given the current messages.
     Returns the new AI message to append to state.
@@ -132,8 +218,7 @@ def _agent_node(state: AgentState, llm_with_tools, dynamic_tools_names: list[str
     messages = list(state["messages"])
     # Always inject the system prompt at position 0
     if not messages or not isinstance(messages[0], SystemMessage):
-        dynamic_prompt = SYSTEM_PROMPT + f"\n\nAvailable tools on this server: {', '.join(dynamic_tools_names)}"
-        messages = [SystemMessage(content=dynamic_prompt)] + messages
+        messages = [SystemMessage(content=SYSTEM_PROMPT)] + messages
 
     response: AIMessage = llm_with_tools.invoke(messages)
     return {"messages": [response]}
@@ -147,24 +232,26 @@ def _tools_node(state: AgentState) -> dict:
     last_message: AIMessage = state["messages"][-1]  # type: ignore
     tool_messages: list[ToolMessage] = []
 
+    tools_by_name = {t.name: t for t in ALL_TOOLS}
+
     for tc in last_message.tool_calls:
         tool_name = tc["name"]
         tool_args = tc["args"]
         tool_call_id = tc["id"]
 
-        logger.info("Executing MCP tool: %s(%s)", tool_name, tool_args)
-        try:
-            raw_result = run_mcp_tool(Config.MCP_SERVER_URL, tool_name, tool_args)
-            if isinstance(raw_result, (dict, list)):
-                result = json.dumps(raw_result, indent=2)
+        logger.info("Executing static LangChain tool: %s(%s)", tool_name, tool_args)
+        if tool_name in tools_by_name:
+            tool_obj = tools_by_name[tool_name]
+            result = tool_obj.invoke(tool_args)
+            if isinstance(result, (dict, list)):
+                content = json.dumps(result, indent=2)
             else:
-                result = str(raw_result)
-        except Exception as exc:
-            logger.error("MCP tool '%s' failed: %s", tool_name, exc)
-            result = f"Tool error: {exc}"
+                content = str(result)
+        else:
+            content = f"Tool error: Tool {tool_name} not found locally."
 
         tool_messages.append(
-            ToolMessage(content=result, tool_call_id=tool_call_id)
+            ToolMessage(content=content, tool_call_id=tool_call_id, name=tool_name)
         )
 
     return {"messages": tool_messages}
@@ -185,29 +272,14 @@ def build_graph():
     Build and compile the LangGraph StateGraph.
     Returns a compiled graph ready for `.stream()` calls.
     """
-    mcp_tools_meta = run_mcp_list_tools(Config.MCP_SERVER_URL)
-    dynamic_tools = []
-    discovered_tool_names = []
-
-    for t in mcp_tools_meta:
-        discovered_tool_names.append(t["name"])
-        dynamic_tools.append({
-            "type": "function",
-            "function": {
-                "name": t["name"],
-                "description": t["description"],
-                "parameters": t["inputSchema"]
-            }
-        })
-
-    logger.info("Dynamically loaded %d MCP tools: %s", len(dynamic_tools), discovered_tool_names)
+    logger.info("Loading static LangChain tools directly.")
 
     llm = _build_llm()
-    llm_with_tools = llm.bind_tools(dynamic_tools)
+    llm_with_tools = llm.bind_tools(ALL_TOOLS)
 
     # Bind the LLM into the agent node via closure
     def agent_node(state: AgentState) -> dict:
-        return _agent_node(state, llm_with_tools, discovered_tool_names)
+        return _agent_node(state, llm_with_tools)
 
     graph = StateGraph(AgentState)
     graph.add_node("agent", agent_node)
