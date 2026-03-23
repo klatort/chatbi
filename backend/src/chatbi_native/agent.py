@@ -31,7 +31,6 @@ from langchain_core.messages import (
     ToolMessage,
 )
 from langchain_core.tools import tool
-from langchain_core.tools import ToolException
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
@@ -122,31 +121,31 @@ class AddChartToDashboardSchema(BaseModel):
         description="The integer ID of the chart to add."
     )
 
-@tool("list_datasets", args_schema=ListDatasetsSchema, handle_tool_error=True)
+@tool("list_datasets", args_schema=ListDatasetsSchema)
 def list_datasets(query: str = ""):
     """Lists available datasets matching an optional query."""
     try:
         return run_mcp_tool(Config.MCP_SERVER_URL, "list_datasets", {"query": query})
     except Exception as e:
-        raise ToolException(f"Superset API Error: {str(e)}")
+        return f"Superset API Error: {str(e)}"
 
-@tool("get_dataset_schema", args_schema=GetDatasetSchemaSchema, handle_tool_error=True)
+@tool("get_dataset_schema", args_schema=GetDatasetSchemaSchema)
 def get_dataset_schema(datasource_id: int):
     """Gets the schema (columns, types, etc.) for a specific dataset ID."""
     try:
         return run_mcp_tool(Config.MCP_SERVER_URL, "get_dataset_schema", {"datasource_id": datasource_id})
     except Exception as e:
-        raise ToolException(f"Superset API Error: {str(e)}")
+        return f"Superset API Error: {str(e)}"
 
-@tool("execute_sql", args_schema=ExecuteSqlSchema, handle_tool_error=True)
+@tool("execute_sql", args_schema=ExecuteSqlSchema)
 def execute_sql(query: str, database_id: int):
     """Executes a SQL query on a given database ID."""
     try:
         return run_mcp_tool(Config.MCP_SERVER_URL, "execute_sql", {"query": query, "database_id": database_id})
     except Exception as e:
-        raise ToolException(f"Superset API Error: {str(e)}")
+        return f"Superset API Error: {str(e)}"
 
-@tool("create_superset_chart", args_schema=CreateSupersetChartSchema, handle_tool_error=True)
+@tool("create_superset_chart", args_schema=CreateSupersetChartSchema)
 def create_superset_chart(datasource_id: int, viz_type: str, metrics: List[str], groupby: Optional[List[str]] = None):
     """
     Creates a new chart in Apache Superset.
@@ -161,19 +160,19 @@ def create_superset_chart(datasource_id: int, viz_type: str, metrics: List[str],
         }
         return run_mcp_tool(Config.MCP_SERVER_URL, "create_superset_chart", args)
     except Exception as e:
-        raise ToolException(
+        return (
             f"Superset API Error: {str(e)}. "
             "Your payload was rejected. Review the JSON schema, remove any forbidden/invented properties (like UI/layout keys), "
             "ensure arrays contain only strings, and try again."
         )
 
-@tool("add_chart_to_dashboard", args_schema=AddChartToDashboardSchema, handle_tool_error=True)
+@tool("add_chart_to_dashboard", args_schema=AddChartToDashboardSchema)
 def add_chart_to_dashboard(dashboard_id: int, chart_id: int):
     """Adds a newly created chart to an existing dashboard."""
     try:
         return run_mcp_tool(Config.MCP_SERVER_URL, "add_chart_to_dashboard", {"dashboard_id": dashboard_id, "chart_id": chart_id})
     except Exception as e:
-        raise ToolException(f"Superset API Error: {str(e)}")
+        return f"Superset API Error: {str(e)}"
 
 ALL_TOOLS = [list_datasets, get_dataset_schema, execute_sql, create_superset_chart, add_chart_to_dashboard]
 
