@@ -30,7 +30,7 @@ from langchain_core.messages import (
     SystemMessage,
     ToolMessage,
 )
-from langchain.tools import tool
+from langchain_core.tools import tool
 from langchain_core.tools import ToolException
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, StateGraph
