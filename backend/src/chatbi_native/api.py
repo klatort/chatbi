@@ -225,7 +225,10 @@ def chat() -> Response:
         try:
             from chatbi_native.agent import stream_agent
 
-            for chunk in stream_agent(user_message, history=history, mcp_url=mcp_url):
+            # Get user ID for caching
+            user_id = get_user_id()
+            
+            for chunk in stream_agent(user_message, history=history, mcp_url=mcp_url, user_id=user_id):
                 yield f"data: {json.dumps(chunk)}\n\n"
 
         except ImportError as exc:

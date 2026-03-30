@@ -39,6 +39,13 @@ from typing import List, Literal, Optional
 
 from chatbi_native.config import Config
 from chatbi_native.mcp_client import run_mcp_tool, run_mcp_list_tools
+from chatbi_native.cache_manager import CacheType, get_cache_manager
+from chatbi_native.validation_tools import (
+    validate_chart_parameters,
+    validate_dataset_access,
+    validate_sql_query,
+    validate_dashboard_parameters,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -47,16 +54,43 @@ SYSTEM_PROMPT = """\
 You are ChatBI, an elite Apache Superset Data Architect.
 Your core behavior: Data-Driven, Factual, and Direct.
 
+CRITICAL RULES (ZERO TOLERANCE):
+1. **ALWAYS VALIDATE BEFORE EXECUTION**: Before calling any tool that creates or modifies resources,
+   you MUST call the appropriate validation tool first.
+2. **NEVER GUESS PARAMETERS**: Always fetch schema and metadata before using datasets.
+3. **USE CACHED DATA**: Check user context for cached datasets, schemas, and dashboards before fetching.
+4. **RESPECT USER PERMISSIONS**: Only access resources the user has permission to see.
+
 WORKFLOW (MANDATORY SEQUENCE):
-1. SEARCH: Find the relevant dataset ID.
-2. SCHEMA VALIDATION: You MUST call `get_dataset_schema` to fetch exact column names. Do not guess.
-3. EXECUTE: Call `create_superset_chart` or `add_chart_to_dashboard`.
-4. RESPOND: Only report success after the tool returns a confirmation.
+1. **CONTEXT CHECK**: Check user context for cached datasets/dashboards. If missing, fetch them.
+2. **DATASET DISCOVERY**: Use `list_datasets_cached` to find relevant datasets.
+3. **SCHEMA VALIDATION**: You MUST call `get_dataset_schema_cached` to fetch exact column names. Do not guess.
+4. **PARAMETER VALIDATION**: Before creating charts, call validation tools to check parameters.
+5. **EXECUTE**: Call `create_superset_chart` or `add_chart_to_dashboard` with validated parameters.
+6. **RESPOND**: Only report success after the tool returns a confirmation.
+
+VALIDATION TOOLS (USE THESE BEFORE EXECUTION):
+- `validate_chart_parameters`: Validate chart parameters before creation
+- `validate_dataset_access`: Check if user has access to a dataset
+- `validate_sql_query`: Validate SQL query syntax and safety
+- `validate_dashboard_parameters`: Validate dashboard creation parameters
+
+PERFORMANCE OPTIMIZATION:
+- Use cached tools (`list_datasets_cached`, `get_dataset_schema_cached`) when possible for better performance
+- Cached tools automatically store and reuse results, reducing API calls
+- Provide `user_id` parameter to cached tools for user-specific caching
 
 STRICT API RULES:
 - Never pass UI, CSS, layout, margin, or color properties to the API. 
 - Arrays (like metrics or groupby) must be flat arrays of strings: ["col1", "col2"]. Never pass dictionaries.
 - If a tool returns an error, read the error message, correct your JSON payload, and call the tool again.
+- Always use cached versions of tools when available (tools ending with _cached).
+
+ERROR RECOVERY:
+1. If a tool returns an error, read the error message carefully
+2. Check if you need to validate parameters first
+3. Ensure you're using the correct data types and formats
+4. Retry with corrected parameters
 """
 
 
@@ -174,7 +208,87 @@ def add_chart_to_dashboard(dashboard_id: int, chart_id: int):
     except Exception as e:
         return f"Superset API Error: {str(e)}"
 
-ALL_TOOLS = [list_datasets, get_dataset_schema, execute_sql, create_superset_chart, add_chart_to_dashboard]
+# ── Cached Tools ──────────────────────────────────────────────────────────
+
+class ListDatasetsCachedSchema(BaseModel):
+    query: str = Field(
+        default="",
+        description="Optional search query to filter datasets by name."
+    )
+    user_id: str = Field(
+        default="anonymous",
+        description="User ID for cache isolation."
+    )
+
+@tool("list_datasets_cached", args_schema=ListDatasetsCachedSchema)
+def list_datasets_cached(query: str = "", user_id: str = "anonymous"):
+    """Lists available datasets matching an optional query, using cache when possible."""
+    try:
+        cache = get_cache_manager()
+        
+        # Try to get from cache first
+        cached = cache.get(CacheType.DATASET, user_id, query=query)
+        if cached is not None:
+            logger.info(f"Cache hit for list_datasets (user: {user_id}, query: {query})")
+            return {"cached": True, "datasets": cached}
+        
+        # Cache miss, fetch from API
+        logger.info(f"Cache miss for list_datasets (user: {user_id}, query: {query})")
+        result = run_mcp_tool(Config.MCP_SERVER_URL, "list_datasets", {"query": query})
+        
+        # Cache the result
+        cache.set(CacheType.DATASET, user_id, result, ttl_seconds=300, query=query)
+        
+        return {"cached": False, "datasets": result}
+    except Exception as e:
+        return f"Superset API Error: {str(e)}"
+
+class GetDatasetSchemaCachedSchema(BaseModel):
+    datasource_id: int = Field(
+        ...,
+        description="The exact integer ID of the dataset to get the schema for."
+    )
+    user_id: str = Field(
+        default="anonymous",
+        description="User ID for cache isolation."
+    )
+
+@tool("get_dataset_schema_cached", args_schema=GetDatasetSchemaCachedSchema)
+def get_dataset_schema_cached(datasource_id: int, user_id: str = "anonymous"):
+    """Gets the schema (columns, types, etc.) for a specific dataset ID, using cache when possible."""
+    try:
+        cache = get_cache_manager()
+        
+        # Try to get from cache first
+        cached = cache.get(CacheType.DATASET_SCHEMA, user_id, datasource_id=datasource_id)
+        if cached is not None:
+            logger.info(f"Cache hit for get_dataset_schema (user: {user_id}, datasource_id: {datasource_id})")
+            return {"cached": True, "schema": cached}
+        
+        # Cache miss, fetch from API
+        logger.info(f"Cache miss for get_dataset_schema (user: {user_id}, datasource_id: {datasource_id})")
+        result = run_mcp_tool(Config.MCP_SERVER_URL, "get_dataset_schema", {"datasource_id": datasource_id})
+        
+        # Cache the result
+        cache.set(CacheType.DATASET_SCHEMA, user_id, result, ttl_seconds=600, datasource_id=datasource_id)
+        
+        return {"cached": False, "schema": result}
+    except Exception as e:
+        return f"Superset API Error: {str(e)}"
+
+ALL_TOOLS = [
+    list_datasets, 
+    get_dataset_schema, 
+    execute_sql, 
+    create_superset_chart, 
+    add_chart_to_dashboard, 
+    list_datasets_cached, 
+    get_dataset_schema_cached,
+    validate_chart_parameters,
+    validate_dataset_access,
+    validate_sql_query,
+    validate_dashboard_parameters,
+]
 
 
 
@@ -230,6 +344,9 @@ def _tools_node(state: AgentState) -> dict:
     """
     last_message: AIMessage = state["messages"][-1]  # type: ignore
     tool_messages: list[ToolMessage] = []
+    
+    # Get user_id from state if available
+    user_id = state.get("user_id", "anonymous")
 
     tools_by_name = {t.name: t for t in ALL_TOOLS}
 
@@ -239,6 +356,11 @@ def _tools_node(state: AgentState) -> dict:
         tool_call_id = tc["id"]
 
         logger.info("Executing static LangChain tool: %s(%s)", tool_name, tool_args)
+        
+        # Add user_id to tool args for tools that support it
+        if tool_name in ["list_datasets_cached", "get_dataset_schema_cached", "validate_dataset_access"]:
+            tool_args["user_id"] = user_id
+        
         if tool_name in tools_by_name:
             tool_obj = tools_by_name[tool_name]
             result = tool_obj.invoke(tool_args)
@@ -297,6 +419,7 @@ def stream_agent(
     user_message: str,
     history: list[dict] | None = None,
     mcp_url: str | None = None,
+    user_id: str = "anonymous",
 ) -> Generator[dict, None, None]:
     """
     Stream the agent's response for a given user message.
@@ -324,7 +447,7 @@ def stream_agent(
     messages.append(HumanMessage(content=user_message))
 
     compiled_graph = build_graph()
-    initial_state: AgentState = {"messages": messages}  # type: ignore
+    initial_state: AgentState = {"messages": messages, "user_id": user_id}  # type: ignore
 
     try:
         for event in compiled_graph.stream(initial_state, stream_mode="messages"):
