@@ -46,6 +46,18 @@ _JSON_TYPE_MAP: dict[str, type] = {
 }
 
 
+def _resolve_type(schema: dict[str, Any]) -> type:
+    """Helper to convert a JSON schema type definition to a Python type."""
+    json_type = schema.get("type", "string")
+    if json_type == "array":
+        item_type = schema.get("items", {}).get("type", "string")
+        inner = _JSON_TYPE_MAP.get(item_type, str)
+        return list[inner]  # type: ignore[valid-type]
+    elif json_type == "object":
+        return dict[str, Any]  # type: ignore[assignment]
+    return _JSON_TYPE_MAP.get(json_type, str)
+
+
 def _json_schema_to_pydantic(tool_name: str, schema: dict[str, Any]) -> type[BaseModel]:
     """
     Convert a JSON Schema ``inputSchema`` from the MCP tool listing
@@ -59,29 +71,20 @@ def _json_schema_to_pydantic(tool_name: str, schema: dict[str, Any]) -> type[Bas
 
     for prop_name, prop_schema in properties.items():
         description = prop_schema.get("description", "")
-        json_type = prop_schema.get("type", "string")
         default = prop_schema.get("default")
         is_required = prop_name in required_fields
-
-        # Resolve the Python type
-        if json_type == "array":
-            item_type = prop_schema.get("items", {}).get("type", "string")
-            inner = _JSON_TYPE_MAP.get(item_type, str)
-            py_type = list[inner]  # type: ignore[valid-type]
-        elif json_type == "object":
-            # Pass objects as raw dicts — the MCP server will validate
-            py_type = dict[str, Any]  # type: ignore[assignment]
-        else:
-            py_type = _JSON_TYPE_MAP.get(json_type, str)
 
         # Handle nullable types (anyOf with null)
         any_of = prop_schema.get("anyOf")
         if any_of:
             non_null = [t for t in any_of if t.get("type") != "null"]
             if non_null:
-                inner_type = non_null[0].get("type", "string")
-                py_type = _JSON_TYPE_MAP.get(inner_type, str)
+                py_type = _resolve_type(non_null[0])
+            else:
+                py_type = str
             py_type = Optional[py_type]  # type: ignore[assignment]
+        else:
+            py_type = _resolve_type(prop_schema)
 
         # Build the Field
         if is_required and default is None:
