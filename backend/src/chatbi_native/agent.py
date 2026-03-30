@@ -59,11 +59,15 @@ NEVER invent, guess, or add extra parameters. If unsure, check the tool descript
 ══════════════════════════════════════════════════════
 MANDATORY WORKFLOW (follow this EVERY time):
 ══════════════════════════════════════════════════════
-1. DISCOVER: Call `superset_dataset_list` to find dataset IDs.
-2. SCHEMA:   Call `superset_dataset_get` with `dataset_id` to get exact column names.
+1. CONTEXT:  The user's message may include a hidden `[System Context: ...]` string
+             indicating their exact current dashboard or chart. If this context is present,
+             assume they are asking about that specific entity and fetch it immediately
+             using its ID without doing a discovery search first.
+2. DISCOVER: Call `superset_dataset_list` to find dataset IDs ONLY if not in context.
+3. SCHEMA:   Call `superset_dataset_get` with `dataset_id` to get exact column names.
              NEVER guess column names — always verify first.
-3. ACT:      Use the correct tool with ONLY the parameters it accepts.
-4. VERIFY:   Check the response for errors. If error, fix parameters and retry.
+4. ACT:      Use the correct tool with ONLY the parameters it accepts.
+5. VERIFY:   Check the response for errors. If error, fix parameters and retry.
 
 ══════════════════════════════════════════════════════
 CHART CREATION — superset_chart_create

@@ -81,10 +81,12 @@ export const ChatBIPanel: React.FC = () => {
     fetchSessions();
   }, [fetchSessions]);
 
-  // Auto-scroll to bottom as messages stream
+  // Auto-scroll to bottom as messages stream or upon opening
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, 10);
+  }, [messages, isOpen]);
 
   // Focus input when panel opens or session swaps
   useEffect(() => {
@@ -368,6 +370,7 @@ export const ChatBIPanel: React.FC = () => {
                 textAlign: 'center',
                 gap: '16px',
                 color: '#6B7280',
+                userSelect: 'none',
               }}>
                 <div style={{
                   width: '52px', height: '52px', borderRadius: '14px',
@@ -525,7 +528,7 @@ export const ChatBIPanel: React.FC = () => {
             </div>
             )}
             {!showSessions && (
-              <div style={{ fontSize: '11px', color: '#9CA3AF', textAlign: 'center', marginTop: '6px' }}>
+              <div style={{ fontSize: '11px', color: '#9CA3AF', textAlign: 'center', marginTop: '6px', userSelect: 'none' }}>
                 Shift+Enter for new line · Esc to close
               </div>
             )}
