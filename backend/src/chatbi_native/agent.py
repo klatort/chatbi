@@ -22,7 +22,14 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sys
 from typing import Annotated, Any, Generator, Sequence
+
+# Force UTF-8 encoding for stdout/stderr to prevent Docker ASCII locale crashes
+if hasattr(sys.stdout, 'reconfigure') and sys.stdout.encoding.lower() != 'utf-8':
+    sys.stdout.reconfigure(encoding='utf-8')
+if hasattr(sys.stderr, 'reconfigure') and sys.stderr.encoding.lower() != 'utf-8':
+    sys.stderr.reconfigure(encoding='utf-8')
 
 from langchain_core.messages import (
     AIMessage,
