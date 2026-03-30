@@ -235,7 +235,9 @@ def _make_tools_node(all_tools):
             tool_args = tc["args"]
             tool_call_id = tc["id"]
 
-            logger.info("Executing MCP tool: %s(%s)", tool_name, str(tool_args)[:200])
+            # Safely encode tool args for logging (Docker ASCII locale workaround)
+            safe_args_log = json.dumps(tool_args, ensure_ascii=True)
+            logger.info("Executing MCP tool: %s(%s)", tool_name, safe_args_log[:200])
             if tool_name in tools_by_name:
                 tool_obj = tools_by_name[tool_name]
                 result = tool_obj.invoke(tool_args)
